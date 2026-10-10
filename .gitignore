@@ -1,0 +1,35 @@
+## .NET / Visual Studio
+[Bb]in/
+[Oo]bj/
+*_wpftmp.csproj
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio files
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.dbmdl
+
+# Visual Studio Code
+.vscode/
+
+# Rider / ReSharper
+.idea/
+_ReSharper*/
+
+# Release artifacts (for sharing/distribution)
+Release/
+publish/
+publish_out/
+temp_fd/
+temp_sc/
+TestResults/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
