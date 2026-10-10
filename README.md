@@ -2,6 +2,12 @@
 
 CleanSweep helps you find and remove unnecessary files on Windows. It is free to use and has no ads or subscription.
 
+## Download
+
+Open the repository's [Releases page](https://github.com/liqdevs/CleanSweep/releases) and download **CleanSweep.exe**. Run it to start the app—no installer, extra folders, or .NET installation required.
+
+Download the `.exe` attached to a release, not GitHub's automatically generated **Source code** archives. If there is no `.exe` there yet, a ready-to-use version has not been published.
+
 ## What you can do
 
 - Find temporary files, caches, and other cleanup candidates.
@@ -15,4 +21,4 @@ CleanSweep's file-importance labels are estimates based on file names and locati
 
 ## License
 
-CleanSweep uses the MIT License. The full terms are in [LICENSE](LICENSE).
+CleanSweep uses the MIT License. In plain terms, you may use, copy, modify, and share it, including commercially, as long as copies include the copyright notice and license. The app comes without a warranty. See [LICENSE](LICENSE) for the full terms.
