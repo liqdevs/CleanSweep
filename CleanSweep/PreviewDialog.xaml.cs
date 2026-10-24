@@ -11,15 +11,19 @@ namespace CleanSweep;
 
 public partial class PreviewDialog : Window
 {
+    public const int MaximumVisibleItems = 100;
+
     private readonly List<PreviewItem> _previewItems;
     private readonly long _totalSize;
+    private readonly int _totalItemCount;
 
-    public PreviewDialog(List<PreviewItem> previewItems, long totalSize)
+    public PreviewDialog(List<PreviewItem> previewItems, long totalSize, int? totalItemCount = null)
     {
         InitializeComponent();
         WindowChromeTheme.Apply(this);
-        _previewItems = previewItems;
+        _previewItems = previewItems.Take(MaximumVisibleItems).ToList();
         _totalSize = totalSize;
+        _totalItemCount = Math.Max(previewItems.Count, totalItemCount ?? previewItems.Count);
 
         PopulateItems();
         Retranslate();
@@ -130,12 +134,15 @@ public partial class PreviewDialog : Window
 
         var summaryArgs = new Dictionary<string, string>
         {
-            ["count"] = _previewItems.Count.ToString(),
+            ["count"] = _totalItemCount.ToString("N0"),
+            ["shown"] = _previewItems.Count.ToString("N0"),
             ["size"] = FileSystemUtils.HumanSize(_totalSize)
         };
-        SummaryText.Text = I18n.Tr("preview_summary", summaryArgs)
-            + "\n"
-            + I18n.Tr("preview_importance_note");
+        string summaryKey = _totalItemCount > _previewItems.Count
+            ? "preview_summary_limited"
+            : "preview_summary";
+        SummaryText.Text = I18n.Tr(summaryKey, summaryArgs)
+            + "\n" + I18n.Tr("preview_importance_note");
 
         LegendGreenText.Text = I18n.Tr("preview_risk_green");
         LegendYellowText.Text = I18n.Tr("preview_risk_yellow");

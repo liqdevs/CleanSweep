@@ -13,7 +13,8 @@ public static class DiskStatisticsScanner
     public static DiskFolderDeletionContents GetFolderDeletionContents(
         string directoryPath,
         string volumeRoot,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<DiskScanProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
@@ -52,6 +53,7 @@ public static class DiskStatisticsScanner
         var directories = new List<string> { target };
         var pendingDirectories = new Stack<DirectoryInfo>();
         pendingDirectories.Push(rootInfo);
+        int itemsScanned = 0;
 
         while (pendingDirectories.Count > 0)
         {
@@ -65,6 +67,7 @@ public static class DiskStatisticsScanner
                 {
                     files.Add(new DiskLargestFile { Path = file.FullName, SizeBytes = file.Length });
                 }
+                ReportProgressIfNeeded(progress, ++itemsScanned, file.FullName);
             }
 
             foreach (var subDirectory in directory.EnumerateDirectories())
@@ -77,9 +80,11 @@ public static class DiskStatisticsScanner
 
                 directories.Add(subDirectory.FullName);
                 pendingDirectories.Push(subDirectory);
+                ReportProgressIfNeeded(progress, ++itemsScanned, subDirectory.FullName);
             }
         }
 
+        progress?.Report(new DiskScanProgress(itemsScanned, target));
         return new DiskFolderDeletionContents
         {
             Files = files,

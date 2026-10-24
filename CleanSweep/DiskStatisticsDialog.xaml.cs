@@ -469,30 +469,46 @@ public partial class DiskStatisticsDialog : Window
         ScanProgress.Visibility = Visibility.Visible;
         StatusText.Text = I18n.Tr("disk_stats_preparing_folder_delete");
 
-        var previewItems = new List<PreviewItem>();
+        var folderPreviewItems = new List<PreviewItem>();
         var previewFiles = new Dictionary<string, DiskLargestFile>(StringComparer.OrdinalIgnoreCase);
         var directoriesToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IProgress<DiskScanProgress> preparationProgress = new Progress<DiskScanProgress>(update =>
+        {
+            if (_directoryLoading)
+            {
+                StatusText.Text = I18n.Tr("disk_stats_preparing_delete_progress", new Dictionary<string, string>
+                {
+                    ["count"] = update.ItemsScanned.ToString("N0"),
+                    ["path"] = update.CurrentPath
+                });
+            }
+        });
         try
         {
             foreach (string selectedFolder in selectedFolders)
             {
-                var folderContents = await Task.Run(
-                    () => DiskStatisticsScanner.GetFolderDeletionContents(selectedFolder, _volumeRoot, _cancellation.Token),
-                    _cancellation.Token);
-                foreach (var file in folderContents.Files)
+                await Task.Run(() =>
                 {
-                    previewFiles.TryAdd(file.Path, file);
-                }
-                foreach (string directory in folderContents.Directories)
-                {
-                    directoriesToRemove.Add(directory);
-                }
+                    var folderContents = DiskStatisticsScanner.GetFolderDeletionContents(
+                        selectedFolder,
+                        _volumeRoot,
+                        _cancellation.Token,
+                        preparationProgress);
+                    foreach (var file in folderContents.Files)
+                    {
+                        previewFiles.TryAdd(file.Path, file);
+                    }
+                    foreach (string directory in folderContents.Directories)
+                    {
+                        directoriesToRemove.Add(directory);
+                    }
+                }, _cancellation.Token);
 
                 var folderAssessment = FileImportanceAnalyzer.Analyze(selectedFolder);
                 bool folderHasFiles = _directoryUsage.TryGetValue(selectedFolder, out var folderUsage) &&
                     folderUsage.FileCount > 0;
                 long folderSize = folderUsage?.SizeBytes ?? 0;
-                previewItems.Add(new PreviewItem(
+                folderPreviewItems.Add(new PreviewItem(
                     selectedFolder,
                     folderSize,
                     folderHasFiles ? folderAssessment.Risk : "green",
@@ -501,46 +517,98 @@ public partial class DiskStatisticsDialog : Window
                     isDirectory: true));
             }
 
-            foreach (var selectedFile in selectedFiles)
+            await Task.Run(() =>
             {
-                try
+                foreach (var selectedFile in selectedFiles)
                 {
-                    var file = new FileInfo(selectedFile.Path);
-                    if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) == 0)
+                    _cancellation.Token.ThrowIfCancellationRequested();
+                    try
                     {
-                        previewFiles.TryAdd(file.FullName, new DiskLargestFile
+                        var file = new FileInfo(selectedFile.Path);
+                        if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) == 0)
                         {
-                            Path = file.FullName,
-                            SizeBytes = file.Length
-                        });
+                            previewFiles.TryAdd(file.FullName, new DiskLargestFile
+                            {
+                                Path = file.FullName,
+                                SizeBytes = file.Length
+                            });
+                        }
+                    }
+                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or ArgumentException or NotSupportedException)
+                    {
+                        // A changed or inaccessible file is omitted from the review.
                     }
                 }
-                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or ArgumentException or NotSupportedException)
-                {
-                    // A changed or inaccessible file is omitted from the review.
-                }
-            }
+            }, _cancellation.Token);
 
-            foreach (var file in previewFiles.Values)
+            var previewData = await Task.Run(() =>
             {
-                var assessment = FileImportanceAnalyzer.Analyze(file.Path);
-                previewItems.Add(new PreviewItem(
-                    file.Path,
-                    file.SizeBytes,
-                    assessment.Risk,
-                    CategoryCleaner.ShouldSkipForCleanup(file.Path),
-                    assessment.DescriptionKey,
-                    allowRecentDeletion: true));
-            }
+                long totalSize = 0;
+                var previewItems = folderPreviewItems
+                    .Take(PreviewDialog.MaximumVisibleItems)
+                    .ToList();
+                int remainingSlots = PreviewDialog.MaximumVisibleItems - previewItems.Count;
+                var largestFiles = new PriorityQueue<DiskLargestFile, long>();
+                int itemsProcessed = 0;
 
-            if (previewItems.Count == 0)
+                foreach (var file in previewFiles.Values)
+                {
+                    _cancellation.Token.ThrowIfCancellationRequested();
+                    totalSize += file.SizeBytes;
+                    if (remainingSlots > 0)
+                    {
+                        if (largestFiles.Count < remainingSlots)
+                        {
+                            largestFiles.Enqueue(file, file.SizeBytes);
+                        }
+                        else
+                        {
+                            largestFiles.TryPeek(out _, out long smallestFileSize);
+                            if (file.SizeBytes > smallestFileSize)
+                            {
+                                largestFiles.Dequeue();
+                                largestFiles.Enqueue(file, file.SizeBytes);
+                            }
+                        }
+                    }
+
+                    itemsProcessed++;
+                    if (itemsProcessed % 128 == 0)
+                    {
+                        preparationProgress.Report(new DiskScanProgress(
+                            previewFiles.Count + itemsProcessed,
+                            file.Path));
+                    }
+                }
+
+                foreach (var file in largestFiles.UnorderedItems
+                             .Select(item => item.Element)
+                             .OrderByDescending(file => file.SizeBytes))
+                {
+                    var assessment = FileImportanceAnalyzer.Analyze(file.Path);
+                    previewItems.Add(new PreviewItem(
+                        file.Path,
+                        file.SizeBytes,
+                        assessment.Risk,
+                        CategoryCleaner.ShouldSkipForCleanup(file.Path),
+                        assessment.DescriptionKey,
+                        allowRecentDeletion: true));
+                }
+
+                return (Items: previewItems, TotalSize: totalSize);
+            }, _cancellation.Token);
+
+            if (previewData.Items.Count == 0)
             {
                 StatusText.Text = I18n.Tr("disk_stats_no_selected_files");
                 return;
             }
             else
             {
-                var previewDialog = new PreviewDialog(previewItems, previewFiles.Values.Sum(file => file.SizeBytes))
+                var previewDialog = new PreviewDialog(
+                    previewData.Items,
+                    previewData.TotalSize,
+                    previewFiles.Count + folderPreviewItems.Count)
                 {
                     Owner = this
                 };
@@ -555,13 +623,27 @@ public partial class DiskStatisticsDialog : Window
             CloseButton.IsEnabled = false;
             StatusText.Text = I18n.Tr("disk_stats_deleting");
             var folderPaths = directoriesToRemove.OrderByDescending(path => path.Length).ToList();
-            CleanResult result = await Task.Run(() =>
+            bool deletionFinished = false;
+            IProgress<CleanProgress> deletionProgress = new Progress<CleanProgress>(update =>
+            {
+                if (_deleting && !deletionFinished)
+                {
+                    StatusText.Text = I18n.Tr("disk_stats_deleting_progress", new Dictionary<string, string>
+                    {
+                        ["count"] = update.ItemsProcessed.ToString("N0"),
+                        ["path"] = update.CurrentPath
+                    });
+                }
+            });
+            var deleteOutcome = await Task.Run(() =>
             {
                 var cleanup = CategoryCleaner.CleanFilesWithinRoot(
                     previewFiles.Keys,
                     _volumeRoot,
                     _cancellation.Token,
-                    allowRecentFiles: true);
+                    allowRecentFiles: true,
+                    progress: deletionProgress);
+                int processedFolders = 0;
                 foreach (string path in folderPaths)
                 {
                     _cancellation.Token.ThrowIfCancellationRequested();
@@ -594,22 +676,53 @@ public partial class DiskStatisticsDialog : Window
                     {
                         cleanup.Errors.Add(new CleanError("folder_cleanup_failed", Path.GetFileName(path)));
                     }
+
+                    processedFolders++;
+                    if (processedFolders % 128 == 0 || processedFolders == folderPaths.Count)
+                    {
+                        deletionProgress.Report(new CleanProgress(
+                            cleanup.RemovedItems + cleanup.SkippedItems + processedFolders,
+                            path));
+                    }
                 }
 
-                return cleanup;
+                var deletedFiles = previewFiles.Values
+                    .Where(file => !File.Exists(file.Path))
+                    .ToList();
+                var deletedDirectories = folderPaths
+                    .Where(path => !Directory.Exists(path))
+                    .ToList();
+                var missingSelectedFiles = selectedFiles
+                    .Select(file => file.Path)
+                    .Where(path => !File.Exists(path))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var directoryUsageDeltas = BuildDirectoryUsageDeltas(deletedFiles, _volumeRoot);
+                return (
+                    Cleanup: cleanup,
+                    DeletedFiles: deletedFiles,
+                    MissingSelectedFiles: missingSelectedFiles,
+                    DeletedDirectories: deletedDirectories,
+                    DirectoryUsageDeltas: directoryUsageDeltas);
             }, _cancellation.Token);
+            deletionFinished = true;
+            CleanResult result = deleteOutcome.Cleanup;
 
-            foreach (var file in previewFiles.Values)
+            var deletedFilePaths = new HashSet<string>(
+                deleteOutcome.MissingSelectedFiles,
+                StringComparer.OrdinalIgnoreCase);
+            deletedFilePaths.UnionWith(deleteOutcome.DeletedFiles.Select(file => file.Path));
+            foreach (var delta in deleteOutcome.DirectoryUsageDeltas)
             {
-                if (!File.Exists(file.Path))
+                if (_directoryUsage.TryGetValue(delta.Key, out var usage))
                 {
-                    SubtractFileFromDirectoryUsage(file.Path, file.SizeBytes);
+                    _directoryUsage[delta.Key] = new DiskDirectoryUsage
+                    {
+                        SizeBytes = Math.Max(0, usage.SizeBytes - delta.Value.SizeBytes),
+                        FileCount = Math.Max(0, usage.FileCount - delta.Value.FileCount)
+                    };
                 }
             }
-            foreach (string path in folderPaths.Where(path => !Directory.Exists(path)))
-            {
-                RemoveDirectoryFromUsage(path);
-            }
+            RemoveDirectoriesFromUsage(deleteOutcome.DeletedDirectories);
             foreach (string path in _selectedFolderPaths
                          .Where(selectedPath => selectedFolders.Any(root =>
                              DiskStatisticsScanner.IsWithinSelectedVolume(selectedPath, root)))
@@ -618,9 +731,9 @@ public partial class DiskStatisticsDialog : Window
                 _selectedFolderPaths.Remove(path);
             }
 
-            _fileSelections.RemoveAll(selection => !File.Exists(selection.Path));
-            _topFileSelections.RemoveAll(selection => !File.Exists(selection.Path));
-            _visibleFileSelections.RemoveAll(selection => !File.Exists(selection.Path));
+            _fileSelections.RemoveAll(selection => deletedFilePaths.Contains(selection.Path));
+            _topFileSelections.RemoveAll(selection => deletedFilePaths.Contains(selection.Path));
+            _visibleFileSelections.RemoveAll(selection => deletedFilePaths.Contains(selection.Path));
             RenderFileItems();
             UpdateDeleteButton();
 
@@ -636,7 +749,7 @@ public partial class DiskStatisticsDialog : Window
                 ["size"] = FileSystemUtils.HumanSize(result.FreedBytes),
                 ["count"] = result.RemovedItems.ToString("N0")
             });
-            int removedFolders = directoriesToRemove.Count(path => !Directory.Exists(path));
+            int removedFolders = deleteOutcome.DeletedDirectories.Count;
             if (removedFolders > 0)
             {
                 message += "\n\n" + I18n.Tr("disk_stats_folders_deleted", new Dictionary<string, string>
@@ -712,34 +825,61 @@ public partial class DiskStatisticsDialog : Window
         }
     }
 
-    private void SubtractFileFromDirectoryUsage(string filePath, long sizeBytes)
+    private static Dictionary<string, (long SizeBytes, int FileCount)> BuildDirectoryUsageDeltas(
+        IEnumerable<DiskLargestFile> deletedFiles,
+        string volumeRoot)
     {
-        string? directory = Path.GetDirectoryName(filePath);
-        while (!string.IsNullOrEmpty(directory) && DiskStatisticsScanner.IsWithinSelectedVolume(directory, _volumeRoot))
+        var deltas = new Dictionary<string, (long SizeBytes, int FileCount)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in deletedFiles)
         {
-            if (_directoryUsage.TryGetValue(directory, out var usage))
+            string? directory = Path.GetDirectoryName(file.Path);
+            while (!string.IsNullOrEmpty(directory) && DiskStatisticsScanner.IsWithinSelectedVolume(directory, volumeRoot))
             {
-                _directoryUsage[directory] = new DiskDirectoryUsage
+                var current = deltas.GetValueOrDefault(directory);
+                deltas[directory] = (current.SizeBytes + file.SizeBytes, current.FileCount + 1);
+                if (string.Equals(directory, volumeRoot, StringComparison.OrdinalIgnoreCase))
                 {
-                    SizeBytes = Math.Max(0, usage.SizeBytes - sizeBytes),
-                    FileCount = Math.Max(0, usage.FileCount - 1)
-                };
+                    break;
+                }
+                directory = Path.GetDirectoryName(directory);
             }
-            if (string.Equals(directory, _volumeRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            directory = Path.GetDirectoryName(directory);
         }
+
+        return deltas;
     }
 
-    private void RemoveDirectoryFromUsage(string directoryPath)
+    private void RemoveDirectoriesFromUsage(IEnumerable<string> deletedDirectories)
     {
-        foreach (string indexedPath in _directoryUsage.Keys
-                     .Where(path => DiskStatisticsScanner.IsWithinSelectedVolume(path, directoryPath))
-                     .ToList())
+        var deletedPaths = new HashSet<string>(deletedDirectories, StringComparer.OrdinalIgnoreCase);
+        if (deletedPaths.Count == 0)
         {
-            _directoryUsage.Remove(indexedPath);
+            return;
+        }
+
+        var pathsToRemove = new List<string>();
+        foreach (string indexedPath in _directoryUsage.Keys)
+        {
+            string? directory = indexedPath;
+            while (!string.IsNullOrEmpty(directory))
+            {
+                if (deletedPaths.Contains(directory))
+                {
+                    pathsToRemove.Add(indexedPath);
+                    break;
+                }
+
+                string? parent = Path.GetDirectoryName(directory);
+                if (parent is null || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                directory = parent;
+            }
+        }
+
+        foreach (string path in pathsToRemove)
+        {
+            _directoryUsage.Remove(path);
         }
     }
 

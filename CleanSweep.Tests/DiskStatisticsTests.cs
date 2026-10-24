@@ -1,4 +1,5 @@
 using System.IO;
+using CleanSweep.Core.Models;
 using CleanSweep.Core.Scanning;
 using Xunit;
 
@@ -133,7 +134,11 @@ public class DiskStatisticsTests
             File.WriteAllBytes(Path.Combine(selected, "direct.bin"), new byte[3]);
             File.WriteAllBytes(Path.Combine(selected, "Nested", "nested.bin"), new byte[7]);
 
-            var contents = DiskStatisticsScanner.GetFolderDeletionContents(selected, root);
+            var progress = new ImmediateProgress<DiskScanProgress>();
+            var contents = DiskStatisticsScanner.GetFolderDeletionContents(
+                selected,
+                root,
+                progress: progress);
 
             Assert.Equal(2, contents.Files.Count);
             Assert.Contains(contents.Files, file => file.Path == Path.Combine(selected, "direct.bin"));
@@ -141,6 +146,7 @@ public class DiskStatisticsTests
             Assert.Equal(2, contents.Directories.Count);
             Assert.Contains(selected, contents.Directories);
             Assert.Contains(Path.Combine(selected, "Nested"), contents.Directories);
+            Assert.Equal(3, progress.Values[^1].ItemsScanned);
         }
         finally
         {
@@ -161,5 +167,12 @@ public class DiskStatisticsTests
         {
             Directory.Delete(root, true);
         }
+    }
+
+    private sealed class ImmediateProgress<T> : IProgress<T>
+    {
+        public List<T> Values { get; } = new();
+
+        public void Report(T value) => Values.Add(value);
     }
 }

@@ -20,3 +20,4 @@ public class CleanResult
     public List<CleanError> Errors { get; set; } = new();
 }
 
+public sealed record CleanProgress(int ItemsProcessed, string CurrentPath);

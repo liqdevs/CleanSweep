@@ -292,10 +292,39 @@ public partial class MainWindow : Window
 
         long totalSize = selected.Sum(c => c.SizeBytes);
 
-        var previewItems = new List<PreviewItem>();
-        foreach (var category in selected)
+        ScanBtn.IsEnabled = false;
+        CleanBtn.IsEnabled = false;
+        SettingsBtn.IsEnabled = false;
+        DiskStatsBtn.IsEnabled = false;
+        CategoriesPanel.IsEnabled = false;
+        MainScanRing.SubText = I18n.Tr("preparing_cleanup_preview");
+
+        List<PreviewItem> previewItems;
+        try
         {
-            previewItems.AddRange(CategoryCleaner.BuildPreviewItems(category));
+            previewItems = await Task.Run(() =>
+            {
+                var items = new List<PreviewItem>();
+                foreach (var category in selected)
+                {
+                    items.AddRange(CategoryCleaner.BuildPreviewItems(category));
+                }
+                return items;
+            });
+        }
+        catch (Exception ex)
+        {
+            CategoriesPanel.IsEnabled = true;
+            ScanBtn.IsEnabled = true;
+            SettingsBtn.IsEnabled = true;
+            DiskStatsBtn.IsEnabled = true;
+            UpdateRingDisplay();
+            UpdateFooter();
+            new AppMessageDialog(I18n.Tr("done_title"), ex.Message, AppMessageKind.Error)
+            {
+                Owner = this
+            }.ShowDialog();
+            return;
         }
 
         var previewDialog = new PreviewDialog(previewItems.Take(20).ToList(), totalSize)
@@ -305,13 +334,15 @@ public partial class MainWindow : Window
 
         if (previewDialog.ShowDialog() != true)
         {
+            CategoriesPanel.IsEnabled = true;
+            ScanBtn.IsEnabled = true;
+            SettingsBtn.IsEnabled = true;
+            DiskStatsBtn.IsEnabled = true;
+            UpdateRingDisplay();
+            UpdateFooter();
             return;
         }
 
-        ScanBtn.IsEnabled = false;
-        CleanBtn.IsEnabled = false;
-        SettingsBtn.IsEnabled = false;
-        DiskStatsBtn.IsEnabled = false;
         _state = AppState.Cleaning;
         UpdateScanButtonText();
 
@@ -323,12 +354,24 @@ public partial class MainWindow : Window
         int cleanDone = 0;
         _freedBytes = 0;
         _cleanErrors.Clear();
+        bool cleanupFinished = false;
+        IProgress<CleanProgress> cleanupProgress = new Progress<CleanProgress>(update =>
+        {
+            if (!cleanupFinished)
+            {
+                MainScanRing.SubText = I18n.Tr("cleaning_progress", new Dictionary<string, string>
+                {
+                    ["count"] = update.ItemsProcessed.ToString("N0"),
+                    ["path"] = update.CurrentPath
+                });
+            }
+        });
 
         await Task.Run(() =>
         {
             foreach (var category in selected)
             {
-                var result = CategoryCleaner.CleanCategory(category);
+                var result = CategoryCleaner.CleanCategory(category, cleanupProgress);
                 cleanDone++;
                 _freedBytes += result.FreedBytes;
 
@@ -350,10 +393,12 @@ public partial class MainWindow : Window
                 });
             }
         });
+        cleanupFinished = true;
 
         ScanBtn.IsEnabled = true;
         SettingsBtn.IsEnabled = true;
         DiskStatsBtn.IsEnabled = true;
+        CategoriesPanel.IsEnabled = true;
         _state = AppState.Cleaned;
 
         MainScanRing.RingBrush = (Brush)Application.Current.FindResource("AccentBrush");

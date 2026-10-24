@@ -9,6 +9,8 @@ namespace CleanSweep.Core.Cleaning;
 
 public static class CategoryCleaner
 {
+    private const int ProgressInterval = 128;
+
     public static bool ShouldSkipForCleanup(string path, int recentSeconds = 60)
     {
         try
@@ -139,7 +141,7 @@ public static class CategoryCleaner
         return previewItems;
     }
 
-    private static void ClearDirContents(string path, CleanResult result)
+    private static void ClearDirContents(string path, CleanResult result, IProgress<CleanProgress>? progress)
     {
         if (!Directory.Exists(path))
         {
@@ -157,11 +159,14 @@ public static class CategoryCleaner
             return;
         }
 
+        int itemsProcessed = 0;
+
         // Delete files
         try
         {
             foreach (var file in dir.EnumerateFiles())
             {
+                ReportCleanupProgress(progress, ++itemsProcessed, file.FullName);
                 try
                 {
                     if (ShouldSkipForCleanup(file.FullName))
@@ -192,6 +197,7 @@ public static class CategoryCleaner
         {
             foreach (var subDir in dir.EnumerateDirectories())
             {
+                ReportCleanupProgress(progress, ++itemsProcessed, subDir.FullName);
                 try
                 {
                     if (ShouldSkipForCleanup(subDir.FullName))
@@ -217,7 +223,11 @@ public static class CategoryCleaner
         }
     }
 
-    private static void ClearFileGlob(string path, string pattern, CleanResult result)
+    private static void ClearFileGlob(
+        string path,
+        string pattern,
+        CleanResult result,
+        IProgress<CleanProgress>? progress)
     {
         if (!Directory.Exists(path))
         {
@@ -227,8 +237,10 @@ public static class CategoryCleaner
         try
         {
             var dir = new DirectoryInfo(path);
+            int itemsProcessed = 0;
             foreach (var file in dir.EnumerateFiles(pattern))
             {
+                ReportCleanupProgress(progress, ++itemsProcessed, file.FullName);
                 try
                 {
                     if (ShouldSkipForCleanup(file.FullName))
@@ -269,7 +281,7 @@ public static class CategoryCleaner
         }
     }
 
-    public static CleanResult CleanCategory(Category category)
+    public static CleanResult CleanCategory(Category category, IProgress<CleanProgress>? progress = null)
     {
         var result = new CleanResult();
 
@@ -277,11 +289,11 @@ public static class CategoryCleaner
         {
             if (target.Kind == TargetKind.DirContents)
             {
-                ClearDirContents(target.Path, result);
+                ClearDirContents(target.Path, result, progress);
             }
             else if (target.Kind == TargetKind.FileGlob)
             {
-                ClearFileGlob(target.Path, target.Pattern, result);
+                ClearFileGlob(target.Path, target.Pattern, result, progress);
             }
             else if (target.Kind == TargetKind.RecycleBin)
             {
@@ -292,45 +304,55 @@ public static class CategoryCleaner
         return result;
     }
 
-    public static CleanResult CleanFiles(IEnumerable<string> filePaths, CancellationToken cancellationToken = default)
+    public static CleanResult CleanFiles(
+        IEnumerable<string> filePaths,
+        CancellationToken cancellationToken = default,
+        IProgress<CleanProgress>? progress = null)
     {
-        return CleanFilesCore(filePaths, null, cancellationToken);
+        return CleanFilesCore(filePaths, null, cancellationToken, progress: progress);
     }
 
     public static CleanResult CleanFilesWithinRoot(
         IEnumerable<string> filePaths,
         string allowedRoot,
         CancellationToken cancellationToken = default,
-        bool allowRecentFiles = false)
+        bool allowRecentFiles = false,
+        IProgress<CleanProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(allowedRoot))
         {
             throw new ArgumentException("A root path is required.", nameof(allowedRoot));
         }
 
-        return CleanFilesCore(filePaths, Path.GetFullPath(allowedRoot), cancellationToken, allowRecentFiles);
+        return CleanFilesCore(filePaths, Path.GetFullPath(allowedRoot), cancellationToken, allowRecentFiles, progress);
     }
 
     private static CleanResult CleanFilesCore(
         IEnumerable<string> filePaths,
         string? allowedRoot,
         CancellationToken cancellationToken,
-        bool allowRecentFiles = false)
+        bool allowRecentFiles = false,
+        IProgress<CleanProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(filePaths);
         var result = new CleanResult();
+        int itemsProcessed = 0;
 
         foreach (string path in filePaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(path))
+            if (itemsProcessed == 0)
             {
-                result.Errors.Add(new CleanError("file_cleanup_failed", path ?? string.Empty));
-                continue;
+                progress?.Report(new CleanProgress(1, path ?? string.Empty));
             }
-
             try
             {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    result.Errors.Add(new CleanError("file_cleanup_failed", path ?? string.Empty));
+                    continue;
+                }
+
                 string fullPath = Path.GetFullPath(path);
                 if (allowedRoot is not null && !IsSafeFilePathWithinRoot(fullPath, allowedRoot))
                 {
@@ -360,10 +382,19 @@ public static class CategoryCleaner
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException or ArgumentException or NotSupportedException)
             {
-                result.Errors.Add(new CleanError("file_cleanup_failed", Path.GetFileName(path)));
+                result.Errors.Add(new CleanError("file_cleanup_failed", Path.GetFileName(path) ?? string.Empty));
+            }
+            finally
+            {
+                itemsProcessed++;
+                if (progress is not null && itemsProcessed % ProgressInterval == 0)
+                {
+                    progress.Report(new CleanProgress(itemsProcessed, path ?? string.Empty));
+                }
             }
         }
 
+        progress?.Report(new CleanProgress(itemsProcessed, string.Empty));
         return result;
     }
 
@@ -400,5 +431,13 @@ public static class CategoryCleaner
         }
 
         return false;
+    }
+
+    private static void ReportCleanupProgress(IProgress<CleanProgress>? progress, int itemsProcessed, string path)
+    {
+        if (progress is not null && (itemsProcessed == 1 || itemsProcessed % ProgressInterval == 0))
+        {
+            progress.Report(new CleanProgress(itemsProcessed, path));
+        }
     }
 }
