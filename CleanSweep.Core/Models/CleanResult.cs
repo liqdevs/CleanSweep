@@ -16,7 +16,9 @@ public class CleanResult
 {
     public long FreedBytes { get; set; }
     public int RemovedItems { get; set; }
+    public int RemovedDirectories { get; set; }
     public int SkippedItems { get; set; }
+    public int OmittedErrorsCount { get; set; }
     public List<CleanError> Errors { get; set; } = new();
 }
 

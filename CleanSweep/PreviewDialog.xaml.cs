@@ -23,7 +23,7 @@ public partial class PreviewDialog : Window
         WindowChromeTheme.Apply(this);
         _previewItems = previewItems.Take(MaximumVisibleItems).ToList();
         _totalSize = totalSize;
-        _totalItemCount = Math.Max(previewItems.Count, totalItemCount ?? previewItems.Count);
+        _totalItemCount = Math.Max(_previewItems.Count, totalItemCount ?? previewItems.Count);
 
         PopulateItems();
         Retranslate();
@@ -134,15 +134,17 @@ public partial class PreviewDialog : Window
 
         var summaryArgs = new Dictionary<string, string>
         {
-            ["count"] = _totalItemCount.ToString("N0"),
+            ["count"] = _previewItems.Count.ToString(),
             ["shown"] = _previewItems.Count.ToString("N0"),
+            ["totalCount"] = _totalItemCount.ToString("N0"),
             ["size"] = FileSystemUtils.HumanSize(_totalSize)
         };
         string summaryKey = _totalItemCount > _previewItems.Count
             ? "preview_summary_limited"
             : "preview_summary";
         SummaryText.Text = I18n.Tr(summaryKey, summaryArgs)
-            + "\n" + I18n.Tr("preview_importance_note");
+            + "\n"
+            + I18n.Tr("preview_importance_note");
 
         LegendGreenText.Text = I18n.Tr("preview_risk_green");
         LegendYellowText.Text = I18n.Tr("preview_risk_yellow");

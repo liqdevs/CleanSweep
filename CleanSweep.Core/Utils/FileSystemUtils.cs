@@ -32,8 +32,60 @@ public static class FileSystemUtils
 
         try
         {
-            var dirInfo = new DirectoryInfo(path);
-            WalkDirectory(dirInfo, ref total, ref count);
+            var pendingDirectories = new Stack<IEnumerator<FileSystemInfo>>();
+            pendingDirectories.Push(new DirectoryInfo(path).EnumerateFileSystemInfos().GetEnumerator());
+            try
+            {
+                while (pendingDirectories.Count > 0)
+                {
+                    var entries = pendingDirectories.Peek();
+                    bool hasNext;
+                    try
+                    {
+                        hasNext = entries.MoveNext();
+                    }
+                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                    {
+                        entries.Dispose();
+                        pendingDirectories.Pop();
+                        continue;
+                    }
+                    if (!hasNext)
+                    {
+                        entries.Dispose();
+                        pendingDirectories.Pop();
+                        continue;
+                    }
+
+                    var entry = entries.Current;
+                    try
+                    {
+                        if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                        if (entry is DirectoryInfo subDirectory)
+                        {
+                            pendingDirectories.Push(subDirectory.EnumerateFileSystemInfos().GetEnumerator());
+                        }
+                        else if (entry is FileInfo file)
+                        {
+                            total += file.Length;
+                            count++;
+                        }
+                    }
+                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                    {
+                    }
+                }
+            }
+            finally
+            {
+                while (pendingDirectories.Count > 0)
+                {
+                    pendingDirectories.Pop().Dispose();
+                }
+            }
         }
         catch
         {
@@ -41,56 +93,6 @@ public static class FileSystemUtils
         }
 
         return (total, count);
-    }
-
-    private static void WalkDirectory(DirectoryInfo dir, ref long total, ref int count)
-    {
-        // Skip reparse points (symlinks / junctions) to prevent cycles and accidental deletion
-        if ((dir.Attributes & FileAttributes.ReparsePoint) != 0)
-        {
-            return;
-        }
-
-        FileInfo[] files;
-        try
-        {
-            files = dir.GetFiles();
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            return;
-        }
-
-        foreach (var file in files)
-        {
-            try
-            {
-                if ((file.Attributes & FileAttributes.ReparsePoint) == 0)
-                {
-                    total += file.Length;
-                    count++;
-                }
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-            {
-                // In-use or locked file
-            }
-        }
-
-        DirectoryInfo[] subDirs;
-        try
-        {
-            subDirs = dir.GetDirectories();
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            return;
-        }
-
-        foreach (var subDir in subDirs)
-        {
-            WalkDirectory(subDir, ref total, ref count);
-        }
     }
 
     public static List<string> ListAvailableDrives()
@@ -151,4 +153,3 @@ public static class FileSystemUtils
         return (0, 0, 0);
     }
 }
-

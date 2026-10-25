@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private long _lastScanTotal;
     private long _freedBytes;
     private readonly List<string> _cleanErrors = new();
+    private int _cleanErrorsOmitted;
 
     public MainWindow()
     {
@@ -297,7 +298,6 @@ public partial class MainWindow : Window
         SettingsBtn.IsEnabled = false;
         DiskStatsBtn.IsEnabled = false;
         CategoriesPanel.IsEnabled = false;
-        MainScanRing.SubText = I18n.Tr("preparing_cleanup_preview");
 
         List<PreviewItem> previewItems;
         try
@@ -307,7 +307,12 @@ public partial class MainWindow : Window
                 var items = new List<PreviewItem>();
                 foreach (var category in selected)
                 {
-                    items.AddRange(CategoryCleaner.BuildPreviewItems(category));
+                    int remainingItems = PreviewDialog.MaximumVisibleItems - items.Count;
+                    if (remainingItems <= 0)
+                    {
+                        break;
+                    }
+                    items.AddRange(CategoryCleaner.BuildPreviewItems(category, remainingItems));
                 }
                 return items;
             });
@@ -318,7 +323,6 @@ public partial class MainWindow : Window
             ScanBtn.IsEnabled = true;
             SettingsBtn.IsEnabled = true;
             DiskStatsBtn.IsEnabled = true;
-            UpdateRingDisplay();
             UpdateFooter();
             new AppMessageDialog(I18n.Tr("done_title"), ex.Message, AppMessageKind.Error)
             {
@@ -327,7 +331,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var previewDialog = new PreviewDialog(previewItems.Take(20).ToList(), totalSize)
+        var previewDialog = new PreviewDialog(
+            previewItems,
+            totalSize,
+            selected.Sum(category => category.ItemCount))
         {
             Owner = this
         };
@@ -338,7 +345,6 @@ public partial class MainWindow : Window
             ScanBtn.IsEnabled = true;
             SettingsBtn.IsEnabled = true;
             DiskStatsBtn.IsEnabled = true;
-            UpdateRingDisplay();
             UpdateFooter();
             return;
         }
@@ -354,32 +360,29 @@ public partial class MainWindow : Window
         int cleanDone = 0;
         _freedBytes = 0;
         _cleanErrors.Clear();
-        bool cleanupFinished = false;
-        IProgress<CleanProgress> cleanupProgress = new Progress<CleanProgress>(update =>
-        {
-            if (!cleanupFinished)
-            {
-                MainScanRing.SubText = I18n.Tr("cleaning_progress", new Dictionary<string, string>
-                {
-                    ["count"] = update.ItemsProcessed.ToString("N0"),
-                    ["path"] = update.CurrentPath
-                });
-            }
-        });
+        _cleanErrorsOmitted = 0;
 
         await Task.Run(() =>
         {
             foreach (var category in selected)
             {
-                var result = CategoryCleaner.CleanCategory(category, cleanupProgress);
+                var result = CategoryCleaner.CleanCategory(category);
                 cleanDone++;
                 _freedBytes += result.FreedBytes;
 
                 foreach (var err in result.Errors)
                 {
-                    var args = new Dictionary<string, string> { ["detail"] = err.Detail };
-                    _cleanErrors.Add(I18n.Tr(err.Key, args));
+                    if (_cleanErrors.Count < 100)
+                    {
+                        var args = new Dictionary<string, string> { ["detail"] = err.Detail };
+                        _cleanErrors.Add(I18n.Tr(err.Key, args));
+                    }
+                    else
+                    {
+                        _cleanErrorsOmitted++;
+                    }
                 }
+                _cleanErrorsOmitted += result.OmittedErrorsCount;
 
                 double progress = cleanDone / (double)Math.Max(cleanTotal, 1);
 
@@ -393,7 +396,6 @@ public partial class MainWindow : Window
                 });
             }
         });
-        cleanupFinished = true;
 
         ScanBtn.IsEnabled = true;
         SettingsBtn.IsEnabled = true;
@@ -412,9 +414,28 @@ public partial class MainWindow : Window
             ["size"] = FileSystemUtils.HumanSize(_freedBytes)
         });
 
-        if (_cleanErrors.Count > 0)
+        if (_cleanErrors.Count > 0 || _cleanErrorsOmitted > 0)
         {
-            message += I18n.Tr("skipped_intro") + string.Join("\n", _cleanErrors.Take(5));
+            if (_cleanErrors.Count > 0)
+            {
+                var shownErrors = _cleanErrors.Take(5).ToList();
+                message += I18n.Tr("skipped_intro") + string.Join("\n", shownErrors);
+                int errorsNotShown = _cleanErrorsOmitted + _cleanErrors.Count - shownErrors.Count;
+                if (errorsNotShown > 0)
+                {
+                    message += "\n" + I18n.Tr("cleanup_more_errors_omitted", new Dictionary<string, string>
+                    {
+                        ["count"] = errorsNotShown.ToString("N0")
+                    });
+                }
+            }
+            else if (_cleanErrorsOmitted > 0)
+            {
+                message += "\n" + I18n.Tr("cleanup_more_errors_omitted", new Dictionary<string, string>
+                {
+                    ["count"] = _cleanErrorsOmitted.ToString("N0")
+                });
+            }
         }
 
         MessageBox.Show(

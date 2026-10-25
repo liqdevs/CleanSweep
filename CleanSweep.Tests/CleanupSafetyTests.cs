@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using CleanSweep.Core.Cleaning;
-using CleanSweep.Core.Models;
 using Xunit;
 
 namespace CleanSweep.Tests;
@@ -147,71 +146,42 @@ public class CleanupSafetyTests
     }
 
     [Fact]
-    public void CleanFilesReportsProgressWhileDeletingManyFiles()
+    public void CleanDirectoryWithinRootDeletesNestedContentsWithoutMaterializingFileList()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "CleanSweepProgress_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepFolderCleanup_" + Guid.NewGuid().ToString("N"));
+        string selected = Path.Combine(root, "Selected");
+        Directory.CreateDirectory(Path.Combine(selected, "Nested"));
         try
         {
-            var files = Enumerable.Range(0, 130).Select(index =>
-            {
-                string path = Path.Combine(tempDir, $"{index:D3}.tmp");
-                File.WriteAllText(path, "x");
-                return path;
-            }).ToList();
-            foreach (string file in files)
-            {
-                File.SetLastWriteTime(file, DateTime.Now.AddHours(-1));
-            }
-            var progress = new ImmediateProgress<CleanProgress>();
+            File.WriteAllText(Path.Combine(selected, "first.tmp"), "first");
+            File.WriteAllText(Path.Combine(selected, "Nested", "second.tmp"), "second");
 
-            var result = CategoryCleaner.CleanFiles(files, progress: progress);
+            var result = CategoryCleaner.CleanDirectoryWithinRoot(selected, root);
 
-            Assert.Equal(files.Count, result.RemovedItems);
-            Assert.Contains(progress.Values, value => value.ItemsProcessed == 128);
-            Assert.Equal(files.Count, progress.Values[^1].ItemsProcessed);
+            Assert.Equal(2, result.RemovedItems);
+            Assert.Equal(2, result.RemovedDirectories);
+            Assert.Equal(11, result.FreedBytes);
+            Assert.False(Directory.Exists(selected));
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            Directory.Delete(root, true);
         }
     }
 
     [Fact]
-    public void CleanCategoryReportsProgressForDirectoryContents()
+    public void CleanDirectoryWithinRootCannotDeleteAllowedRoot()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "CleanSweepCategoryProgress_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepFolderRoot_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
         try
         {
-            string firstFile = Path.Combine(tempDir, "first.tmp");
-            string secondFile = Path.Combine(tempDir, "second.tmp");
-            File.WriteAllText(firstFile, "first");
-            File.WriteAllText(secondFile, "second");
-            File.SetLastWriteTime(firstFile, DateTime.Now.AddHours(-1));
-            File.SetLastWriteTime(secondFile, DateTime.Now.AddHours(-1));
-            var category = new Category(
-                "test",
-                new[] { new ScanTarget(tempDir, TargetKind.DirContents) });
-            var progress = new ImmediateProgress<CleanProgress>();
-
-            var result = CategoryCleaner.CleanCategory(category, progress);
-
-            Assert.Equal(2, result.RemovedItems);
-            Assert.Contains(progress.Values, value => value.CurrentPath == firstFile || value.CurrentPath == secondFile);
-            Assert.False(File.Exists(firstFile));
-            Assert.False(File.Exists(secondFile));
+            Assert.Throws<ArgumentException>(() => CategoryCleaner.CleanDirectoryWithinRoot(root, root));
+            Assert.True(Directory.Exists(root));
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            Directory.Delete(root, true);
         }
-    }
-
-    private sealed class ImmediateProgress<T> : IProgress<T>
-    {
-        public List<T> Values { get; } = new();
-
-        public void Report(T value) => Values.Add(value);
     }
 }

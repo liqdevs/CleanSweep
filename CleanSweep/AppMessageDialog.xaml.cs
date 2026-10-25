@@ -20,6 +20,8 @@ public partial class AppMessageDialog : Window
         Title = title;
         TitleText.Text = title;
         MessageText.Text = message;
+        MaxHeight = Math.Min(760, SystemParameters.WorkArea.Height * 0.85);
+        MessageScrollViewer.MaxHeight = Math.Max(120, SystemParameters.WorkArea.Height * 0.62);
         OkButton.Content = I18n.Tr("message_ok");
 
         string brushKey = kind switch

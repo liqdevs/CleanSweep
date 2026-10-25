@@ -8,13 +8,13 @@ namespace CleanSweep.Core.Scanning;
 public static class DiskStatisticsScanner
 {
     private const int LargestFileLimit = 10;
+    private const int VisibleFileLimit = 200;
     private const int ProgressInterval = 128;
 
     public static DiskFolderDeletionContents GetFolderDeletionContents(
         string directoryPath,
         string volumeRoot,
-        CancellationToken cancellationToken = default,
-        IProgress<DiskScanProgress>? progress = null)
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
@@ -53,7 +53,6 @@ public static class DiskStatisticsScanner
         var directories = new List<string> { target };
         var pendingDirectories = new Stack<DirectoryInfo>();
         pendingDirectories.Push(rootInfo);
-        int itemsScanned = 0;
 
         while (pendingDirectories.Count > 0)
         {
@@ -67,7 +66,6 @@ public static class DiskStatisticsScanner
                 {
                     files.Add(new DiskLargestFile { Path = file.FullName, SizeBytes = file.Length });
                 }
-                ReportProgressIfNeeded(progress, ++itemsScanned, file.FullName);
             }
 
             foreach (var subDirectory in directory.EnumerateDirectories())
@@ -80,15 +78,114 @@ public static class DiskStatisticsScanner
 
                 directories.Add(subDirectory.FullName);
                 pendingDirectories.Push(subDirectory);
-                ReportProgressIfNeeded(progress, ++itemsScanned, subDirectory.FullName);
             }
         }
 
-        progress?.Report(new DiskScanProgress(itemsScanned, target));
         return new DiskFolderDeletionContents
         {
             Files = files,
             Directories = directories
+        };
+    }
+
+    public static DiskFolderPreviewContents GetFolderPreviewContents(
+        string directoryPath,
+        string volumeRoot,
+        int largestFileLimit,
+        CancellationToken cancellationToken = default,
+        IProgress<DiskScanProgress>? progress = null)
+    {
+        if (largestFileLimit < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(largestFileLimit));
+        }
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            throw new ArgumentException("A directory path is required.", nameof(directoryPath));
+        }
+        if (string.IsNullOrWhiteSpace(volumeRoot))
+        {
+            throw new ArgumentException("A volume root is required.", nameof(volumeRoot));
+        }
+
+        string root = Path.GetFullPath(volumeRoot);
+        string target = Path.GetFullPath(directoryPath);
+        if (!IsWithinSelectedVolume(target, root) ||
+            string.Equals(
+                target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The selected directory must be inside the volume and cannot be the volume root.", nameof(directoryPath));
+        }
+
+        var rootInfo = new DirectoryInfo(target);
+        if (!rootInfo.Exists)
+        {
+            throw new DirectoryNotFoundException($"The directory '{target}' could not be accessed.");
+        }
+        if ((rootInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException("Symbolic links and junctions cannot be reviewed.");
+        }
+
+        var largestFiles = new PriorityQueue<DiskLargestFile, long>();
+        var pendingDirectories = new Stack<IEnumerator<FileSystemInfo>>();
+        pendingDirectories.Push(rootInfo.EnumerateFileSystemInfos().GetEnumerator());
+        long totalSize = 0;
+        int fileCount = 0;
+        int itemsScanned = 0;
+
+        try
+        {
+            while (pendingDirectories.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var entries = pendingDirectories.Peek();
+                if (!entries.MoveNext())
+                {
+                    entries.Dispose();
+                    pendingDirectories.Pop();
+                    continue;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                var entry = entries.Current;
+                if ((entry.Attributes & FileAttributes.ReparsePoint) == 0)
+                {
+                    if (entry is DirectoryInfo subDirectory)
+                    {
+                        pendingDirectories.Push(subDirectory.EnumerateFileSystemInfos().GetEnumerator());
+                    }
+                    else if (entry is FileInfo file)
+                    {
+                        long size = file.Length;
+                        totalSize += size;
+                        fileCount++;
+                        AddLargestFile(largestFiles, file.FullName, size, largestFileLimit);
+                    }
+                }
+                ReportProgressIfNeeded(progress, ++itemsScanned, entry.FullName);
+            }
+        }
+        finally
+        {
+            while (pendingDirectories.Count > 0)
+            {
+                pendingDirectories.Pop().Dispose();
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        progress?.Report(new DiskScanProgress(itemsScanned, target));
+        return new DiskFolderPreviewContents
+        {
+            LargestFiles = largestFiles.UnorderedItems
+                .Select(entry => entry.Element)
+                .OrderByDescending(file => file.SizeBytes)
+                .ToArray(),
+            TotalSizeBytes = totalSize,
+            FileCount = fileCount
         };
     }
 
@@ -130,12 +227,13 @@ public static class DiskStatisticsScanner
             return ListIndexedDirectoryContents(rootInfo, directoryUsage, progress, cancellationToken);
         }
 
-        var directFiles = new List<DiskLargestFile>();
+        var directFiles = new PriorityQueue<DiskLargestFile, long>();
         var folderStats = new Dictionary<string, (long size, int count)>(StringComparer.OrdinalIgnoreCase);
         var pendingDirectories = new Stack<(DirectoryInfo Directory, string? TopFolder)>();
         pendingDirectories.Push((rootInfo, null));
         int unavailablePaths = 0;
         int itemsScanned = 0;
+        int directFileCount = 0;
 
         while (pendingDirectories.Count > 0)
         {
@@ -157,7 +255,8 @@ public static class DiskStatisticsScanner
                         long size = file.Length;
                         if (topFolder == null)
                         {
-                            directFiles.Add(new DiskLargestFile { Path = file.FullName, SizeBytes = size });
+                            directFileCount++;
+                            AddLargestFile(directFiles, file.FullName, size, VisibleFileLimit);
                         }
                         else
                         {
@@ -222,7 +321,8 @@ public static class DiskStatisticsScanner
             })
                 .OrderByDescending(entry => entry.SizeBytes)
                 .ToArray(),
-            Files = directFiles.OrderByDescending(file => file.SizeBytes).ToArray(),
+            Files = GetLargestFiles(directFiles),
+            TotalFileCount = directFileCount,
             UnavailablePathCount = unavailablePaths
         };
     }
@@ -260,68 +360,88 @@ public static class DiskStatisticsScanner
             [root] = (0, 0)
         };
         var largestFiles = new PriorityQueue<DiskLargestFile, long>();
-        var rootFiles = new List<DiskLargestFile>();
-        var pendingDirectories = new Stack<DirectoryInfo>();
-        pendingDirectories.Push(rootDirectory);
+        var rootFiles = new PriorityQueue<DiskLargestFile, long>();
+        var pendingDirectories = new Stack<ScanDirectoryFrame>();
+        pendingDirectories.Push(new ScanDirectoryFrame(
+            rootDirectory,
+            rootDirectory.EnumerateFileSystemInfos().GetEnumerator(),
+            null));
 
         long scannedBytes = 0;
         int fileCount = 0;
         int unavailablePaths = 0;
         int itemsScanned = 0;
+        int rootFileCount = 0;
 
-        while (pendingDirectories.Count > 0)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var directory = pendingDirectories.Pop();
-
-            try
+            while (pendingDirectories.Count > 0)
             {
-                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                cancellationToken.ThrowIfCancellationRequested();
+                var frame = pendingDirectories.Peek();
+                bool hasNext;
+                try
                 {
+                    hasNext = frame.Entries.MoveNext();
+                }
+                catch (Exception ex) when (IsPathAccessException(ex))
+                {
+                    unavailablePaths++;
+                    hasNext = false;
+                }
+
+                if (!hasNext)
+                {
+                    pendingDirectories.Pop();
+                    frame.Entries.Dispose();
+                    directoryStats[frame.Directory.FullName] = (frame.SizeBytes, frame.FileCount);
+                    if (pendingDirectories.TryPeek(out var parentFrame))
+                    {
+                        parentFrame.SizeBytes += frame.SizeBytes;
+                        parentFrame.FileCount += frame.FileCount;
+                    }
+                    itemsScanned++;
+                    ReportProgressIfNeeded(progress, itemsScanned, frame.Directory.FullName);
                     continue;
                 }
-            }
-            catch (Exception ex) when (IsPathAccessException(ex))
-            {
-                unavailablePaths++;
-                continue;
-            }
 
-            try
-            {
-                foreach (var file in directory.EnumerateFiles())
+                cancellationToken.ThrowIfCancellationRequested();
+                var entry = frame.Entries.Current;
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    try
+                    if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
                     {
-                        if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
+                    if (entry is DirectoryInfo subDirectory)
+                    {
+                        string topFolder = frame.TopFolder ?? subDirectory.Name;
+                        if (topFolder.Length > 0)
+                        {
+                            folderStats.TryAdd(topFolder, (0, 0));
+                        }
+                        pendingDirectories.Push(new ScanDirectoryFrame(
+                            subDirectory,
+                            subDirectory.EnumerateFileSystemInfos().GetEnumerator(),
+                            topFolder));
+                    }
+                    else if (entry is FileInfo file)
+                    {
                         long size = file.Length;
                         scannedBytes += size;
                         fileCount++;
+                        frame.SizeBytes += size;
+                        frame.FileCount++;
 
-                        string folderName = GetTopLevelFolderName(root, file.DirectoryName);
+                        string folderName = frame.TopFolder ?? string.Empty;
                         if (folderName.Length == 0)
                         {
-                            rootFiles.Add(new DiskLargestFile { Path = file.FullName, SizeBytes = size });
+                            rootFileCount++;
+                            AddLargestFile(rootFiles, file.FullName, size, VisibleFileLimit);
                         }
                         var current = folderStats.GetValueOrDefault(folderName);
                         folderStats[folderName] = (current.size + size, current.count + 1);
-
-                        string? ancestorPath = file.DirectoryName;
-                        while (!string.IsNullOrEmpty(ancestorPath) && IsWithinSelectedVolume(ancestorPath, root))
-                        {
-                            var directoryUsage = directoryStats.GetValueOrDefault(ancestorPath);
-                            directoryStats[ancestorPath] = (directoryUsage.size + size, directoryUsage.count + 1);
-                            if (string.Equals(ancestorPath, root, StringComparison.OrdinalIgnoreCase))
-                            {
-                                break;
-                            }
-                            ancestorPath = Path.GetDirectoryName(ancestorPath);
-                        }
 
                         var largestFile = new DiskLargestFile { Path = file.FullName, SizeBytes = size };
                         if (largestFiles.Count < LargestFileLimit)
@@ -333,52 +453,23 @@ public static class DiskStatisticsScanner
                             largestFiles.Dequeue();
                             largestFiles.Enqueue(largestFile, size);
                         }
+                    }
 
-                        itemsScanned++;
-                        ReportProgressIfNeeded(progress, itemsScanned, file.FullName);
-                    }
-                    catch (Exception ex) when (IsPathAccessException(ex))
-                    {
-                        unavailablePaths++;
-                    }
+                    itemsScanned++;
+                    ReportProgressIfNeeded(progress, itemsScanned, entry.FullName);
                 }
-            }
-            catch (Exception ex) when (IsPathAccessException(ex))
-            {
-                unavailablePaths++;
-            }
-
-            try
-            {
-                foreach (var subDirectory in directory.EnumerateDirectories())
+                catch (Exception ex) when (IsPathAccessException(ex))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    try
-                    {
-                        if ((subDirectory.Attributes & FileAttributes.ReparsePoint) == 0)
-                        {
-                            directoryStats.TryAdd(subDirectory.FullName, (0, 0));
-                            string folderName = GetTopLevelFolderName(root, subDirectory.FullName);
-                            if (folderName.Length > 0)
-                            {
-                                folderStats.TryAdd(folderName, (0, 0));
-                            }
-                            pendingDirectories.Push(subDirectory);
-                        }
-                    }
-                    catch (Exception ex) when (IsPathAccessException(ex))
-                    {
-                        unavailablePaths++;
-                    }
+                    unavailablePaths++;
                 }
             }
-            catch (Exception ex) when (IsPathAccessException(ex))
+        }
+        finally
+        {
+            while (pendingDirectories.Count > 0)
             {
-                unavailablePaths++;
+                pendingDirectories.Pop().Entries.Dispose();
             }
-
-            itemsScanned++;
-            ReportProgressIfNeeded(progress, itemsScanned, directory.FullName);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -393,6 +484,7 @@ public static class DiskStatisticsScanner
             FreeBytes = freeBytes,
             ScannedBytes = scannedBytes,
             FileCount = fileCount,
+            RootFileCount = rootFileCount,
             UnavailablePathCount = unavailablePaths,
             Folders = folderStats
                 .Select(entry => new DiskUsageEntry
@@ -407,7 +499,7 @@ public static class DiskStatisticsScanner
                 .Select(entry => entry.Element)
                 .OrderByDescending(file => file.SizeBytes)
                 .ToArray(),
-            RootFiles = rootFiles.OrderByDescending(file => file.SizeBytes).ToArray(),
+            RootFiles = GetLargestFiles(rootFiles),
             DirectoryUsage = directoryStats.ToDictionary(
                 entry => entry.Key,
                 entry => new DiskDirectoryUsage { SizeBytes = entry.Value.size, FileCount = entry.Value.count },
@@ -421,10 +513,11 @@ public static class DiskStatisticsScanner
         IProgress<DiskScanProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var files = new List<DiskLargestFile>();
+        var files = new PriorityQueue<DiskLargestFile, long>();
         var folders = new List<DiskUsageEntry>();
         int unavailablePaths = 0;
         int itemsScanned = 0;
+        int fileCount = 0;
 
         try
         {
@@ -438,7 +531,8 @@ public static class DiskStatisticsScanner
                         continue;
                     }
 
-                    files.Add(new DiskLargestFile { Path = file.FullName, SizeBytes = file.Length });
+                    fileCount++;
+                    AddLargestFile(files, file.FullName, file.Length, VisibleFileLimit);
                     itemsScanned++;
                     ReportProgressIfNeeded(progress, itemsScanned, file.FullName);
                 }
@@ -491,26 +585,10 @@ public static class DiskStatisticsScanner
         return new DiskDirectoryContents
         {
             Folders = folders.OrderByDescending(folder => folder.SizeBytes).ToArray(),
-            Files = files.OrderByDescending(file => file.SizeBytes).ToArray(),
+            Files = GetLargestFiles(files),
+            TotalFileCount = fileCount,
             UnavailablePathCount = unavailablePaths
         };
-    }
-
-    private static string GetTopLevelFolderName(string root, string? directoryPath)
-    {
-        if (string.IsNullOrEmpty(directoryPath))
-        {
-            return string.Empty;
-        }
-
-        string relativePath = Path.GetRelativePath(root, directoryPath);
-        if (relativePath == ".")
-        {
-            return string.Empty;
-        }
-
-        int separatorIndex = relativePath.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });
-        return separatorIndex < 0 ? relativePath : relativePath.Substring(0, separatorIndex);
     }
 
     public static bool IsWithinSelectedVolume(string path, string root)
@@ -530,6 +608,47 @@ public static class DiskStatisticsScanner
         {
             progress?.Report(new DiskScanProgress(itemsScanned, path));
         }
+    }
+
+    private static void AddLargestFile(
+        PriorityQueue<DiskLargestFile, long> largestFiles,
+        string path,
+        long size,
+        int limit)
+    {
+        if (limit == 0)
+        {
+            return;
+        }
+        var file = new DiskLargestFile { Path = path, SizeBytes = size };
+        if (largestFiles.Count < limit)
+        {
+            largestFiles.Enqueue(file, size);
+        }
+        else if (largestFiles.TryPeek(out _, out long smallestSize) && size > smallestSize)
+        {
+            largestFiles.Dequeue();
+            largestFiles.Enqueue(file, size);
+        }
+    }
+
+    private static IReadOnlyList<DiskLargestFile> GetLargestFiles(
+        PriorityQueue<DiskLargestFile, long> largestFiles) =>
+        largestFiles.UnorderedItems
+            .Select(entry => entry.Element)
+            .OrderByDescending(file => file.SizeBytes)
+            .ToArray();
+
+    private sealed class ScanDirectoryFrame(
+        DirectoryInfo directory,
+        IEnumerator<FileSystemInfo> entries,
+        string? topFolder)
+    {
+        public DirectoryInfo Directory { get; } = directory;
+        public IEnumerator<FileSystemInfo> Entries { get; } = entries;
+        public string? TopFolder { get; } = topFolder;
+        public long SizeBytes { get; set; }
+        public int FileCount { get; set; }
     }
 
     private static bool IsPathAccessException(Exception exception) =>

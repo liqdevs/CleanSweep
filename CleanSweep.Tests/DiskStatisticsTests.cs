@@ -1,6 +1,6 @@
 using System.IO;
-using CleanSweep.Core.Models;
 using CleanSweep.Core.Scanning;
+using CleanSweep.Core.Utils;
 using Xunit;
 
 namespace CleanSweep.Tests;
@@ -134,11 +134,7 @@ public class DiskStatisticsTests
             File.WriteAllBytes(Path.Combine(selected, "direct.bin"), new byte[3]);
             File.WriteAllBytes(Path.Combine(selected, "Nested", "nested.bin"), new byte[7]);
 
-            var progress = new ImmediateProgress<DiskScanProgress>();
-            var contents = DiskStatisticsScanner.GetFolderDeletionContents(
-                selected,
-                root,
-                progress: progress);
+            var contents = DiskStatisticsScanner.GetFolderDeletionContents(selected, root);
 
             Assert.Equal(2, contents.Files.Count);
             Assert.Contains(contents.Files, file => file.Path == Path.Combine(selected, "direct.bin"));
@@ -146,7 +142,6 @@ public class DiskStatisticsTests
             Assert.Equal(2, contents.Directories.Count);
             Assert.Contains(selected, contents.Directories);
             Assert.Contains(Path.Combine(selected, "Nested"), contents.Directories);
-            Assert.Equal(3, progress.Values[^1].ItemsScanned);
         }
         finally
         {
@@ -169,10 +164,80 @@ public class DiskStatisticsTests
         }
     }
 
-    private sealed class ImmediateProgress<T> : IProgress<T>
+    [Fact]
+    public void GetFolderPreviewContentsRetainsOnlyTheLargestRequestedFiles()
     {
-        public List<T> Values { get; } = new();
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepPreview_" + Guid.NewGuid().ToString("N"));
+        string selected = Path.Combine(root, "Selected");
+        Directory.CreateDirectory(Path.Combine(selected, "Nested"));
+        try
+        {
+            File.WriteAllBytes(Path.Combine(selected, "small.bin"), new byte[2]);
+            File.WriteAllBytes(Path.Combine(selected, "Nested", "large.bin"), new byte[12]);
+            File.WriteAllBytes(Path.Combine(selected, "Nested", "medium.bin"), new byte[7]);
 
-        public void Report(T value) => Values.Add(value);
+            var result = DiskStatisticsScanner.GetFolderPreviewContents(
+                selected,
+                Path.GetPathRoot(selected)!,
+                largestFileLimit: 2);
+
+            Assert.Equal(3, result.FileCount);
+            Assert.Equal(21, result.TotalSizeBytes);
+            Assert.Equal(2, result.LargestFiles.Count);
+            Assert.Equal("large.bin", Path.GetFileName(result.LargestFiles[0].Path));
+            Assert.Equal("medium.bin", Path.GetFileName(result.LargestFiles[1].Path));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void GetFolderPreviewContentsHandlesThousandsOfFilesWithBoundedSamples()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepPreviewMany_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            for (int index = 0; index < 2000; index++)
+            {
+                File.WriteAllBytes(Path.Combine(root, $"{index:D4}.bin"), new byte[index % 31]);
+            }
+
+            var result = DiskStatisticsScanner.GetFolderPreviewContents(
+                root,
+                Path.GetPathRoot(root)!,
+                largestFileLimit: 7);
+
+            Assert.Equal(2000, result.FileCount);
+            Assert.Equal(7, result.LargestFiles.Count);
+            Assert.Equal(30, result.LargestFiles[0].SizeBytes);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void DirectorySizeCountsNestedFilesWithoutFollowingReparsePoints()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepDirSize_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "Nested"));
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "direct.bin"), new byte[3]);
+            File.WriteAllBytes(Path.Combine(root, "Nested", "nested.bin"), new byte[8]);
+
+            var (size, count) = FileSystemUtils.DirSize(root);
+
+            Assert.Equal(11, size);
+            Assert.Equal(2, count);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 }

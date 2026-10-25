@@ -27,6 +27,7 @@ public sealed class DiskStatisticsResult
     public long FreeBytes { get; init; }
     public long ScannedBytes { get; init; }
     public int FileCount { get; init; }
+    public int RootFileCount { get; init; }
     public int UnavailablePathCount { get; init; }
     public IReadOnlyList<DiskUsageEntry> Folders { get; init; } = Array.Empty<DiskUsageEntry>();
     public IReadOnlyList<DiskLargestFile> LargestFiles { get; init; } = Array.Empty<DiskLargestFile>();
@@ -41,6 +42,7 @@ public sealed class DiskDirectoryContents
 {
     public IReadOnlyList<DiskUsageEntry> Folders { get; init; } = Array.Empty<DiskUsageEntry>();
     public IReadOnlyList<DiskLargestFile> Files { get; init; } = Array.Empty<DiskLargestFile>();
+    public int TotalFileCount { get; init; }
     public int UnavailablePathCount { get; init; }
 }
 
@@ -48,4 +50,11 @@ public sealed class DiskFolderDeletionContents
 {
     public IReadOnlyList<DiskLargestFile> Files { get; init; } = Array.Empty<DiskLargestFile>();
     public IReadOnlyList<string> Directories { get; init; } = Array.Empty<string>();
+}
+
+public sealed class DiskFolderPreviewContents
+{
+    public IReadOnlyList<DiskLargestFile> LargestFiles { get; init; } = Array.Empty<DiskLargestFile>();
+    public long TotalSizeBytes { get; init; }
+    public int FileCount { get; init; }
 }
