@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Microsoft.Win32;
 using CleanSweep.Core.Startup;
 using Xunit;
 
@@ -125,5 +126,28 @@ public class StartupTests
         Assert.False(StartupManager.ToggleStartupFile(string.Empty, "MyApp", enabled: false));
         Assert.False(StartupManager.ToggleStartupFile(Path.GetTempPath(), string.Empty, enabled: false));
     }
-}
 
+    [Fact]
+    public void ReadRunKeyPreservesExpandableValuesAndEnvironmentVariables()
+    {
+        string testKeyPath = $@"Software\CleanSweep\Tests\{Guid.NewGuid():N}";
+        const string valueName = "ExpandableCommand";
+        const string command = @"%ProgramFiles%\Example\app.exe";
+        try
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(testKeyPath))
+            {
+                key!.SetValue(valueName, command, RegistryValueKind.ExpandString);
+            }
+
+            var values = StartupManager.ReadRunKey(Registry.CurrentUser, testKeyPath);
+
+            Assert.Equal(command, values[valueName].command);
+            Assert.Equal(RegistryValueKind.ExpandString, values[valueName].kind);
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKeyPath, throwOnMissingSubKey: false);
+        }
+    }
+}

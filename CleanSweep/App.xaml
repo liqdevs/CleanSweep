@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:CleanSweep.Controls"
              xmlns:local="clr-namespace:CleanSweep"
-             StartupUri="MainWindow.xaml">
+             ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <!-- Color Palette -->
         <Color x:Key="BackgroundColor">#12151B</Color>

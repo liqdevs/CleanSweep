@@ -5,11 +5,12 @@ namespace CleanSweep.Core.Utils;
 
 public static class FileSystemUtils
 {
+    private static readonly string[] SizeUnits = { "B", "KB", "MB", "GB" };
+
     public static string HumanSize(double numBytes)
     {
         double value = numBytes;
-        string[] units = { "B", "KB", "MB", "GB" };
-        foreach (var unit in units)
+        foreach (var unit in SizeUnits)
         {
             if (value < 1024)
             {

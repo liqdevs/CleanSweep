@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using CleanSweep.Core.Localization;
+using CleanSweep.Core.Settings;
 using CleanSweep.Core.Utils;
 
 namespace CleanSweep;
@@ -80,6 +81,7 @@ public partial class SettingsDialog : Window
             {
                 _currentLang = code;
                 I18n.SetLanguage(code);
+                AppSettings.SaveLanguage(code);
                 Retranslate();
                 LanguageChanged?.Invoke(code);
             }
@@ -94,7 +96,7 @@ public partial class SettingsDialog : Window
             if (drive != _currentDrive)
             {
                 _currentDrive = drive;
-                I18n.SaveDrive(drive);
+                AppSettings.SaveDrive(drive);
                 DriveChanged?.Invoke(drive);
             }
         }

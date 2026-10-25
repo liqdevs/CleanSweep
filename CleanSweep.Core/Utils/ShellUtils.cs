@@ -5,7 +5,7 @@ namespace CleanSweep.Core.Utils;
 
 public static class ShellUtils
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    [StructLayout(LayoutKind.Sequential)]
     private struct SHQUERYRBINFO
     {
         public int cbSize;
@@ -69,4 +69,3 @@ public static class ShellUtils
         }
     }
 }
-

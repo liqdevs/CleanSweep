@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Microsoft.Win32;
 
 namespace CleanSweep.Core.Localization;
 
@@ -105,6 +104,34 @@ public static class I18n
             ["settings_disk_hint"] = "Affects the Recycle Bin category and the free space shown above",
             ["settings_close"] = "Close",
             ["disk_stats_title"] = "Disk usage",
+            ["maintenance_tools"] = "Tools",
+            ["maintenance_title"] = "Cleanup tools",
+            ["maintenance_subtitle"] = "Review duplicate files and safely remove empty folders.",
+            ["maintenance_duplicates"] = "Duplicate files",
+            ["maintenance_empty_folders"] = "Empty folders",
+            ["maintenance_duplicate_hint"] = "Choose a folder to scan. Files are compared by size and SHA-256; nothing is deleted until you review the selected files.",
+            ["maintenance_empty_hint"] = "Find empty folders under a selected folder. The selected root and folders containing files are never deleted.",
+            ["maintenance_browse"] = "Browse…",
+            ["maintenance_scan"] = "Scan",
+            ["maintenance_select_copies"] = "Select copies",
+            ["maintenance_delete_selected"] = "Review and delete",
+            ["maintenance_delete_empty"] = "Review and remove",
+            ["maintenance_close"] = "Close",
+            ["maintenance_duplicates_scanning"] = "Scanned {count} files · {path}",
+            ["maintenance_duplicates_found"] = "Scanned {files} files; found {groups} duplicate groups ({copies} extra copies). Access errors: {errors}.",
+            ["maintenance_duplicates_none"] = "No duplicate files found. Scanned {files} files; access errors: {errors}.",
+            ["maintenance_duplicates_limited"] = "Showing {shown} of {total} duplicate files; only visible files can be selected.",
+            ["maintenance_empty_scanning"] = "Scanning folders…",
+            ["maintenance_empty_found"] = "Scanned {directories} folders; found {count} empty folders. Access errors: {errors}.",
+            ["maintenance_empty_none"] = "No empty folders found. Scanned {directories} folders; access errors: {errors}.",
+            ["maintenance_selection_none"] = "Select at least one item to continue.",
+            ["maintenance_scan_error"] = "Scan failed: {error}",
+            ["maintenance_changed_files"] = "Skipped {count} file(s) that changed after scanning or could no longer be read.",
+            ["maintenance_delete_done"] = "Removed {count} item(s). {size} recovered.",
+            ["maintenance_empty_done"] = "Removed {count} empty folder(s).",
+            ["maintenance_confirm_duplicates"] = "Selected duplicate copies will be permanently deleted. Review the exact paths before continuing.",
+            ["maintenance_confirm_empty"] = "Selected empty folders will be permanently removed. Review the exact paths before continuing.",
+            ["maintenance_no_results"] = "No scan results to display.",
             ["disk_stats_capacity"] = "CAPACITY",
             ["disk_stats_used"] = "USED",
             ["disk_stats_free"] = "FREE",
@@ -161,7 +188,11 @@ public static class I18n
             ["cat_temp_name"] = "Temporary files",
             ["cat_temp_desc"] = "Files created by Windows and apps while running, and no longer needed",
             ["cat_browser_cache_name"] = "Browser cache",
-            ["cat_browser_cache_desc"] = "Chrome, Edge and Firefox — images and scripts saved to speed up page loads",
+            ["cat_browser_cache_desc"] = "Chrome, Edge, Firefox, Brave, Opera, Vivaldi and Yandex Browser — caches from all profiles",
+            ["cat_app_caches_name"] = "Messenger and app caches",
+            ["cat_app_caches_desc"] = "Discord, Telegram temporary files, Spotify browser cache and Steam web/shader caches. Account data and offline music are excluded.",
+            ["cat_developer_caches_name"] = "Developer tool caches",
+            ["cat_developer_caches_desc"] = "NuGet, npm, Gradle and pip caches. Packages may need to be downloaded again; disabled by default.",
             ["cat_thumbnails_name"] = "Thumbnail cache",
             ["cat_thumbnails_desc"] = "Image and video previews that Windows Explorer regenerates automatically",
             ["cat_crash_reports_name"] = "Crash reports",
@@ -235,6 +266,34 @@ public static class I18n
             ["settings_disk_hint"] = "Влияет на категорию «Корзина» и свободное место, показанное выше",
             ["settings_close"] = "Закрыть",
             ["disk_stats_title"] = "Использование диска",
+            ["maintenance_tools"] = "Инструменты",
+            ["maintenance_title"] = "Инструменты очистки",
+            ["maintenance_subtitle"] = "Проверяйте дубликаты и безопасно удаляйте пустые папки.",
+            ["maintenance_duplicates"] = "Дубликаты файлов",
+            ["maintenance_empty_folders"] = "Пустые папки",
+            ["maintenance_duplicate_hint"] = "Выберите папку для проверки. Файлы сравниваются по размеру и SHA-256; ничего не удаляется без проверки выбранных файлов.",
+            ["maintenance_empty_hint"] = "Найдите пустые папки внутри выбранной папки. Корневая папка и папки с файлами не удаляются.",
+            ["maintenance_browse"] = "Обзор…",
+            ["maintenance_scan"] = "Сканировать",
+            ["maintenance_select_copies"] = "Выбрать копии",
+            ["maintenance_delete_selected"] = "Проверить и удалить",
+            ["maintenance_delete_empty"] = "Проверить и удалить",
+            ["maintenance_close"] = "Закрыть",
+            ["maintenance_duplicates_scanning"] = "Проверено файлов: {count} · {path}",
+            ["maintenance_duplicates_found"] = "Проверено файлов: {files}; групп дубликатов: {groups} (лишних копий: {copies}). Ошибок доступа: {errors}.",
+            ["maintenance_duplicates_none"] = "Дубликаты не найдены. Проверено файлов: {files}; ошибок доступа: {errors}.",
+            ["maintenance_duplicates_limited"] = "Показано {shown} из {total} файлов-дубликатов; выбрать можно только показанные.",
+            ["maintenance_empty_scanning"] = "Сканирование папок…",
+            ["maintenance_empty_found"] = "Проверено папок: {directories}; найдено пустых: {count}. Ошибок доступа: {errors}.",
+            ["maintenance_empty_none"] = "Пустые папки не найдены. Проверено папок: {directories}; ошибок доступа: {errors}.",
+            ["maintenance_selection_none"] = "Сначала выберите хотя бы один элемент.",
+            ["maintenance_scan_error"] = "Ошибка сканирования: {error}",
+            ["maintenance_changed_files"] = "Пропущено файлов: {count} — они изменились после сканирования или недоступны.",
+            ["maintenance_delete_done"] = "Удалено элементов: {count}. Освобождено {size}.",
+            ["maintenance_empty_done"] = "Удалено пустых папок: {count}.",
+            ["maintenance_confirm_duplicates"] = "Выбранные копии будут удалены безвозвратно. Перед продолжением проверьте точные пути.",
+            ["maintenance_confirm_empty"] = "Выбранные пустые папки будут удалены безвозвратно. Перед продолжением проверьте точные пути.",
+            ["maintenance_no_results"] = "Нет результатов сканирования.",
             ["disk_stats_capacity"] = "ОБЪЁМ",
             ["disk_stats_used"] = "ЗАНЯТО",
             ["disk_stats_free"] = "СВОБОДНО",
@@ -291,7 +350,11 @@ public static class I18n
             ["cat_temp_name"] = "Временные файлы",
             ["cat_temp_desc"] = "Файлы, которые Windows и программы создают во время работы и больше не используют",
             ["cat_browser_cache_name"] = "Кэш браузеров",
-            ["cat_browser_cache_desc"] = "Chrome, Edge и Firefox — картинки и скрипты сайтов, сохранённые для ускорения загрузки",
+            ["cat_browser_cache_desc"] = "Chrome, Edge, Firefox, Brave, Opera, Vivaldi и Яндекс Браузер — кэш всех профилей",
+            ["cat_app_caches_name"] = "Кэш мессенджеров и приложений",
+            ["cat_app_caches_desc"] = "Discord, временные файлы Telegram, кэш браузера Spotify и веб-кэш/шейдеры Steam. Данные аккаунтов и музыка офлайн не затрагиваются.",
+            ["cat_developer_caches_name"] = "Кэши инструментов разработки",
+            ["cat_developer_caches_desc"] = "Кэши NuGet, npm, Gradle и pip. Пакеты могут потребовать повторной загрузки; по умолчанию отключено.",
             ["cat_thumbnails_name"] = "Кэш миниатюр",
             ["cat_thumbnails_desc"] = "Превью картинок и видео — Проводник Windows пересоздаёт их автоматически",
             ["cat_crash_reports_name"] = "Отчёты об ошибках",
@@ -365,6 +428,34 @@ public static class I18n
             ["settings_disk_hint"] = "Впливає на категорію «Кошик» і вільне місце, показане вище",
             ["settings_close"] = "Закрити",
             ["disk_stats_title"] = "Використання диска",
+            ["maintenance_tools"] = "Інструменти",
+            ["maintenance_title"] = "Інструменти очищення",
+            ["maintenance_subtitle"] = "Перевіряйте дублікати та безпечно видаляйте порожні папки.",
+            ["maintenance_duplicates"] = "Дублікати файлів",
+            ["maintenance_empty_folders"] = "Порожні папки",
+            ["maintenance_duplicate_hint"] = "Виберіть папку для перевірки. Файли порівнюються за розміром і SHA-256; нічого не видаляється без перевірки вибраних файлів.",
+            ["maintenance_empty_hint"] = "Знайдіть порожні папки всередині вибраної папки. Коренева папка та папки з файлами не видаляються.",
+            ["maintenance_browse"] = "Огляд…",
+            ["maintenance_scan"] = "Сканувати",
+            ["maintenance_select_copies"] = "Вибрати копії",
+            ["maintenance_delete_selected"] = "Перевірити й видалити",
+            ["maintenance_delete_empty"] = "Перевірити й видалити",
+            ["maintenance_close"] = "Закрити",
+            ["maintenance_duplicates_scanning"] = "Перевірено файлів: {count} · {path}",
+            ["maintenance_duplicates_found"] = "Перевірено файлів: {files}; груп дублікатів: {groups} (зайвих копій: {copies}). Помилок доступу: {errors}.",
+            ["maintenance_duplicates_none"] = "Дублікатів не знайдено. Перевірено файлів: {files}; помилок доступу: {errors}.",
+            ["maintenance_duplicates_limited"] = "Показано {shown} із {total} файлів-дублікатів; вибрати можна лише показані.",
+            ["maintenance_empty_scanning"] = "Сканування папок…",
+            ["maintenance_empty_found"] = "Перевірено папок: {directories}; знайдено порожніх: {count}. Помилок доступу: {errors}.",
+            ["maintenance_empty_none"] = "Порожніх папок не знайдено. Перевірено папок: {directories}; помилок доступу: {errors}.",
+            ["maintenance_selection_none"] = "Спочатку виберіть принаймні один елемент.",
+            ["maintenance_scan_error"] = "Помилка сканування: {error}",
+            ["maintenance_changed_files"] = "Пропущено файлів: {count} — вони змінилися після сканування або недоступні.",
+            ["maintenance_delete_done"] = "Видалено елементів: {count}. Звільнено {size}.",
+            ["maintenance_empty_done"] = "Видалено порожніх папок: {count}.",
+            ["maintenance_confirm_duplicates"] = "Вибрані копії буде видалено назавжди. Перевірте точні шляхи перед продовженням.",
+            ["maintenance_confirm_empty"] = "Вибрані порожні папки буде видалено назавжди. Перевірте точні шляхи перед продовженням.",
+            ["maintenance_no_results"] = "Немає результатів сканування.",
             ["disk_stats_capacity"] = "ЄМНІСТЬ",
             ["disk_stats_used"] = "ЗАЙНЯТО",
             ["disk_stats_free"] = "ВІЛЬНО",
@@ -421,7 +512,11 @@ public static class I18n
             ["cat_temp_name"] = "Тимчасові файли",
             ["cat_temp_desc"] = "Файли, які Windows і програми створюють під час роботи і більше не використовують",
             ["cat_browser_cache_name"] = "Кеш браузерів",
-            ["cat_browser_cache_desc"] = "Chrome, Edge і Firefox — зображення та скрипти сайтів, збережені для прискорення завантаження",
+            ["cat_browser_cache_desc"] = "Chrome, Edge, Firefox, Brave, Opera, Vivaldi та Яндекс Браузер — кеш усіх профілів",
+            ["cat_app_caches_name"] = "Кеш месенджерів і програм",
+            ["cat_app_caches_desc"] = "Discord, тимчасові файли Telegram, кеш браузера Spotify і вебкеш/шейдери Steam. Дані облікових записів і офлайн-музика не зачіпаються.",
+            ["cat_developer_caches_name"] = "Кеші інструментів розробки",
+            ["cat_developer_caches_desc"] = "Кеші NuGet, npm, Gradle і pip. Пакети може знадобитися завантажити знову; типово вимкнено.",
             ["cat_thumbnails_name"] = "Кеш мініатюр",
             ["cat_thumbnails_desc"] = "Прев'ю зображень і відео — Провідник Windows створює їх автоматично",
             ["cat_crash_reports_name"] = "Звіти про помилки",
@@ -443,96 +538,20 @@ public static class I18n
 
     private static string _currentLanguage = DefaultLanguage;
 
-    static I18n()
-    {
-        _currentLanguage = LoadSavedLanguage();
-    }
-
     public static string CurrentLanguage
     {
         get => _currentLanguage;
         set => SetLanguage(value);
     }
 
-    public static string LoadSavedLanguage()
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\CleanSweep");
-            var val = key?.GetValue("Language")?.ToString();
-            if (!string.IsNullOrEmpty(val))
-            {
-                return NormalizeLanguageCode(val);
-            }
-        }
-        catch
-        {
-            // Ignore
-        }
-        return DefaultLanguage;
-    }
-
-    public static string LoadSavedDrive()
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\CleanSweep");
-            var val = key?.GetValue("Drive")?.ToString();
-            if (!string.IsNullOrEmpty(val))
-            {
-                return val;
-            }
-        }
-        catch
-        {
-            // Ignore
-        }
-        return Utils.FileSystemUtils.SystemDrive();
-    }
-
-    public static void SaveDrive(string drive)
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(@"Software\CleanSweep");
-            key?.SetValue("Drive", drive, RegistryValueKind.String);
-        }
-        catch
-        {
-            // Ignore
-        }
-    }
-
     public static string SetLanguage(string lang)
     {
-        string normalized = NormalizeLanguageCode(lang);
-
-        _currentLanguage = normalized;
-
-        try
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(@"Software\CleanSweep");
-            key?.SetValue("Language", normalized, RegistryValueKind.String);
-        }
-        catch
-        {
-            // Ignore
-        }
-
+        _currentLanguage = NormalizeLanguageCode(lang);
         return _currentLanguage;
     }
 
     public static void ResetLanguage()
     {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\CleanSweep", true);
-            key?.DeleteValue("Language", false);
-        }
-        catch
-        {
-            // Ignore
-        }
         _currentLanguage = DefaultLanguage;
     }
 

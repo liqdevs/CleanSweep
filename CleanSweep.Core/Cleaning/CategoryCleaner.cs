@@ -16,9 +16,9 @@ public static class CategoryCleaner
     {
         try
         {
-            DateTime lastWriteTime = File.GetLastWriteTime(path);
-            TimeSpan age = DateTime.Now - lastWriteTime;
-            return age.TotalSeconds < recentSeconds;
+            DateTime lastWriteTime = File.GetLastWriteTimeUtc(path);
+            TimeSpan age = DateTime.UtcNow - lastWriteTime;
+            return age.TotalSeconds >= 0 && age.TotalSeconds < recentSeconds;
         }
         catch
         {
@@ -32,7 +32,7 @@ public static class CategoryCleaner
         return categoryKey switch
         {
             "memory_dumps" or "crash_reports" => "red",
-            "recycle_bin" or "recent_items" or "incomplete_downloads" => "yellow",
+            "recycle_bin" or "recent_items" or "incomplete_downloads" or "app_caches" or "developer_caches" => "yellow",
             _ => "green"
         };
     }
@@ -154,74 +154,92 @@ public static class CategoryCleaner
             return;
         }
 
-        DirectoryInfo dir;
+        var stack = new Stack<(DirectoryInfo Directory, IEnumerator<FileSystemInfo> Entries)>();
         try
         {
-            dir = new DirectoryInfo(path);
-        }
-        catch
-        {
-            AddCleanupError(result, new CleanError("access_denied_named", Path.GetFileName(path)));
-            return;
-        }
-
-        // Delete files
-        try
-        {
-            foreach (var file in dir.EnumerateFiles())
+            var root = new DirectoryInfo(path);
+            if ((root.Attributes & FileAttributes.ReparsePoint) != 0)
             {
+                result.SkippedItems++;
+                return;
+            }
+
+            stack.Push((root, root.EnumerateFileSystemInfos().GetEnumerator()));
+            while (stack.Count > 0)
+            {
+                var frame = stack.Peek();
+                bool hasNext;
                 try
                 {
-                    if (ShouldSkipForCleanup(file.FullName))
+                    hasNext = frame.Entries.MoveNext();
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException)
+                {
+                    AddCleanupError(result, new CleanError("access_denied_named", Path.GetFileName(frame.Directory.FullName)));
+                    hasNext = false;
+                }
+
+                if (!hasNext)
+                {
+                    stack.Pop();
+                    frame.Entries.Dispose();
+                    if (!ReferenceEquals(frame.Directory, root))
+                    {
+                        try
+                        {
+                            frame.Directory.Delete();
+                            result.RemovedDirectories++;
+                        }
+                        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException or ArgumentException or NotSupportedException)
+                        {
+                            AddCleanupError(result, new CleanError("folder_cleanup_failed", frame.Directory.FullName));
+                        }
+                    }
+                    continue;
+                }
+
+                FileSystemInfo entry = frame.Entries.Current;
+                try
+                {
+                    if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
                     {
                         result.SkippedItems++;
-                        continue;
                     }
+                    else if (entry is DirectoryInfo childDirectory)
+                    {
+                        stack.Push((childDirectory, childDirectory.EnumerateFileSystemInfos().GetEnumerator()));
+                    }
+                    else if (entry is FileInfo file)
+                    {
+                        if (ShouldSkipForCleanup(file.FullName))
+                        {
+                            result.SkippedItems++;
+                            continue;
+                        }
 
-                    long size = file.Length;
-                    file.Attributes = FileAttributes.Normal;
-                    file.Delete();
-                    result.FreedBytes += size;
-                    result.RemovedItems++;
+                        long size = file.Length;
+                        file.Attributes = FileAttributes.Normal;
+                        file.Delete();
+                        result.FreedBytes += size;
+                        result.RemovedItems++;
+                    }
                 }
-                catch
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException or ArgumentException or NotSupportedException)
                 {
-                    result.SkippedItems++;
+                    AddCleanupError(result, new CleanError("file_cleanup_failed", entry.FullName));
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException or ArgumentException or NotSupportedException)
         {
             AddCleanupError(result, new CleanError("access_denied_named", Path.GetFileName(path)));
         }
-
-        // Delete directories
-        try
+        finally
         {
-            foreach (var subDir in dir.EnumerateDirectories())
+            while (stack.Count > 0)
             {
-                try
-                {
-                    if (ShouldSkipForCleanup(subDir.FullName))
-                    {
-                        result.SkippedItems++;
-                        continue;
-                    }
-
-                    var (size, _) = FileSystemUtils.DirSize(subDir.FullName);
-                    subDir.Delete(true);
-                    result.FreedBytes += size;
-                    result.RemovedItems++;
-                }
-                catch
-                {
-                    result.SkippedItems++;
-                }
+                stack.Pop().Entries.Dispose();
             }
-        }
-        catch
-        {
-            // Ignore access errors on enumerating directories
         }
     }
 
@@ -300,9 +318,12 @@ public static class CategoryCleaner
         return result;
     }
 
-    public static CleanResult CleanFiles(IEnumerable<string> filePaths, CancellationToken cancellationToken = default)
+    public static CleanResult CleanFiles(
+        IEnumerable<string> filePaths,
+        CancellationToken cancellationToken = default,
+        bool allowRecentFiles = false)
     {
-        return CleanFilesCore(filePaths, null, cancellationToken);
+        return CleanFilesCore(filePaths, null, cancellationToken, allowRecentFiles);
     }
 
     public static CleanResult CleanFilesWithinRoot(

@@ -7,6 +7,10 @@ public sealed record FileImportanceAssessment(string Risk, string DescriptionKey
 
 public static class FileImportanceAnalyzer
 {
+    private static readonly string[] NormalizedSystemRoots = NormalizeRoots(GetSystemRoots());
+    private static readonly string[] NormalizedTemporaryRoots = NormalizeRoots(GetTemporaryRoots());
+    private static readonly string[] NormalizedUserDataRoots = NormalizeRoots(GetUserDataRoots());
+
     private static readonly HashSet<string> RegenerableDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "temp", "tmp", "cache", "caches", "code cache", "gpucache", "dxcache", "d3dscache", "shadercache"
@@ -52,17 +56,17 @@ public static class FileImportanceAnalyzer
             return Unknown();
         }
 
-        if (IsUnderAnyRoot(fullPath, GetTemporaryRoots()) || HasRegenerablePathComponent(fullPath))
+        if (IsUnderAnyRoot(fullPath, NormalizedTemporaryRoots) || HasRegenerablePathComponent(fullPath))
         {
             return new FileImportanceAssessment("green", "preview_importance_temporary");
         }
 
-        if (IsSystemManagedPath(fullPath) || IsUnderAnyRoot(fullPath, GetSystemRoots()))
+        if (IsSystemManagedPath(fullPath) || IsUnderAnyRoot(fullPath, NormalizedSystemRoots))
         {
             return new FileImportanceAssessment("red", "preview_importance_system");
         }
 
-        if (IsUnderAnyRoot(fullPath, GetUserDataRoots()) ||
+        if (IsUnderAnyRoot(fullPath, NormalizedUserDataRoots) ||
             UserDataExtensions.Contains(Path.GetExtension(fullPath)))
         {
             return new FileImportanceAssessment("yellow", "preview_importance_user");
@@ -98,8 +102,9 @@ public static class FileImportanceAnalyzer
         yield return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
-    private static bool IsUnderAnyRoot(string path, IEnumerable<string> roots)
+    private static string[] NormalizeRoots(IEnumerable<string> roots)
     {
+        var normalizedRoots = new List<string>();
         foreach (string root in roots)
         {
             if (string.IsNullOrWhiteSpace(root))
@@ -107,21 +112,22 @@ public static class FileImportanceAnalyzer
                 continue;
             }
 
-            string normalizedRoot;
-            try
-            {
-                normalizedRoot = Path.GetFullPath(root);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or SecurityException)
-            {
-                continue;
-            }
+            normalizedRoots.Add(Path.GetFullPath(root).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar));
+        }
 
+        return normalizedRoots.ToArray();
+    }
+
+    private static bool IsUnderAnyRoot(string path, IEnumerable<string> roots)
+    {
+        foreach (string root in roots)
+        {
             if (string.Equals(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    root,
                     StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

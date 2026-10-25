@@ -7,13 +7,17 @@ namespace CleanSweep.Controls;
 public class CategoryIcon : FrameworkElement
 {
     private const double IconSize = 34.0;
+    private static readonly SolidColorBrush TileBrush = CreateFrozenBrush(Color.FromArgb(26, 0x43, 0xC6, 0xAC));
+    private static readonly SolidColorBrush GlyphBrush = CreateFrozenBrush((Color)ColorConverter.ConvertFromString("#E7E9EE"));
+    private static readonly Pen GlyphPen = CreateGlyphPen();
+    private DrawingGroup? _glyphDrawing;
 
     public static readonly DependencyProperty CategoryKeyProperty =
         DependencyProperty.Register(
             nameof(CategoryKey),
             typeof(string),
             typeof(CategoryIcon),
-            new FrameworkPropertyMetadata(string.Empty, FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(string.Empty, FrameworkPropertyMetadataOptions.AffectsRender, OnCategoryKeyChanged));
 
     public string CategoryKey
     {
@@ -27,58 +31,85 @@ public class CategoryIcon : FrameworkElement
         Height = IconSize;
     }
 
+    private static void OnCategoryKeyChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
+    {
+        ((CategoryIcon)sender)._glyphDrawing = null;
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
+        dc.DrawRoundedRectangle(TileBrush, null, new Rect(0, 0, IconSize, IconSize), 9, 9);
 
-        // 1. Tinted rounded background tile (#43C6AC with 10% opacity)
-        var tileBrush = new SolidColorBrush(Color.FromArgb(26, 0x43, 0xC6, 0xAC));
-        tileBrush.Freeze();
-        dc.DrawRoundedRectangle(tileBrush, null, new Rect(0, 0, IconSize, IconSize), 9, 9);
+        if (_glyphDrawing is null)
+        {
+            var drawing = new DrawingGroup();
+            using (DrawingContext glyphContext = drawing.Open())
+            {
+                DrawGlyph(glyphContext);
+            }
+            drawing.Freeze();
+            _glyphDrawing = drawing;
+        }
 
-        // 2. Icon glyph pen (#E7E9EE, thickness 1.6, round caps)
-        var pen = new Pen(new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E7E9EE")), 1.6)
+        dc.DrawDrawing(_glyphDrawing);
+    }
+
+    private void DrawGlyph(DrawingContext dc)
+    {
+        switch (CategoryKey?.ToLowerInvariant())
+        {
+            case "temp":
+                DrawTemp(dc, GlyphPen);
+                break;
+            case "browser_cache":
+            case "cache":
+                DrawBrowserCache(dc, GlyphPen);
+                break;
+            case "thumbnails":
+                DrawThumbnails(dc, GlyphPen);
+                break;
+            case "crash_reports":
+                DrawCrashReports(dc, GlyphPen);
+                break;
+            case "recycle_bin":
+                DrawRecycleBin(dc, GlyphPen);
+                break;
+            case "memory_dumps":
+                DrawMemoryDumps(dc, GlyphPen);
+                break;
+            case "recent_items":
+                DrawRecentItems(dc, GlyphPen);
+                break;
+            case "incomplete_downloads":
+                DrawIncompleteDownloads(dc, GlyphPen);
+                break;
+            case "shader_cache":
+                DrawShaderCache(dc, GlyphPen);
+                break;
+            default:
+                DrawGeneric(dc, GlyphPen);
+                break;
+        }
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Pen CreateGlyphPen()
+    {
+        var pen = new Pen(GlyphBrush, 1.6)
         {
             StartLineCap = PenLineCap.Round,
             EndLineCap = PenLineCap.Round,
             LineJoin = PenLineJoin.Round
         };
         pen.Freeze();
-
-        switch (CategoryKey?.ToLowerInvariant())
-        {
-            case "temp":
-                DrawTemp(dc, pen);
-                break;
-            case "browser_cache":
-            case "cache":
-                DrawBrowserCache(dc, pen);
-                break;
-            case "thumbnails":
-                DrawThumbnails(dc, pen);
-                break;
-            case "crash_reports":
-                DrawCrashReports(dc, pen);
-                break;
-            case "recycle_bin":
-                DrawRecycleBin(dc, pen);
-                break;
-            case "memory_dumps":
-                DrawMemoryDumps(dc, pen);
-                break;
-            case "recent_items":
-                DrawRecentItems(dc, pen);
-                break;
-            case "incomplete_downloads":
-                DrawIncompleteDownloads(dc, pen);
-                break;
-            case "shader_cache":
-                DrawShaderCache(dc, pen);
-                break;
-            default:
-                DrawGeneric(dc, pen);
-                break;
-        }
+        return pen;
     }
 
     private void DrawGeneric(DrawingContext dc, Pen pen)
@@ -203,4 +234,3 @@ public class CategoryIcon : FrameworkElement
         }
     }
 }
-

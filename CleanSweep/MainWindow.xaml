@@ -41,6 +41,11 @@
                         Padding="12,8"
                         Margin="0,0,8,0"
                         Click="OnDiskStatsClicked"/>
+                <Button x:Name="MaintenanceToolsBtn"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="12,8"
+                        Margin="0,0,8,0"
+                        Click="OnMaintenanceToolsClicked"/>
                 <controls:IconButton x:Name="StartupBtn"
                                      IconKind="Startup"
                                      Margin="0,0,6,0"

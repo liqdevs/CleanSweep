@@ -1,3 +1,5 @@
+using Microsoft.Win32;
+
 namespace CleanSweep.Core.Models;
 
 public class StartupItem
@@ -8,5 +10,6 @@ public class StartupItem
     public string Source { get; set; } = string.Empty; // "hkcu_run" | "hklm_run" | "user_startup" | "common_startup"
     public bool Enabled { get; set; }
     public bool NeedsAdmin { get; set; }
+    public string RegistryPath { get; set; } = string.Empty;
+    public RegistryView RegistryView { get; set; } = RegistryView.Default;
 }
-

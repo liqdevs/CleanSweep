@@ -2,22 +2,22 @@
 
 CleanSweep helps you find and remove unnecessary files on Windows. It is free to use and has no ads or subscription.
 
-## Download
-
-Open the repository's [Releases page](https://github.com/liqdevs/CleanSweep/releases) and download **CleanSweep.exe**. Run it to start the app—no installer, extra folders, or .NET installation required.
-
-Download the `.exe` attached to a release, not GitHub's automatically generated **Source code** archives. If there is no `.exe` there yet, a ready-to-use version has not been published.
-
 ## What you can do
 
 - Find temporary files, caches, and other cleanup candidates.
 - Review items before deleting them.
 - Browse disk usage, search for large files, and choose files or folders to remove.
+- Find identical files by content and review extra copies before removing them.
+- Find empty folders and review them before removal.
 - Manage which apps start with Windows.
 
 ## Use it safely
 
 CleanSweep's file-importance labels are estimates based on file names and locations; the app does not inspect file contents. An unknown or low-importance label is not a guarantee that a file is safe to delete. Review the list before confirming removal.
+
+## Command-line cleanup
+
+For automated cleanup, run `CleanSweep.exe --silent --drive C:\ --categories temp,browser_cache`. Supply a drive root and one or more comma-separated category keys. This permanently deletes files without opening a review window, so use only category keys you have verified. The process exit code is `0` for success, `2` for invalid arguments, `3` for scan failure, `4` when cleanup skipped or failed items, and `5` for an unexpected error.
 
 ## License
 

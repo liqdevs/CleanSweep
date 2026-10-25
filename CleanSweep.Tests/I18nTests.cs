@@ -38,6 +38,35 @@ public class I18nTests
         Assert.False(categories["recent_items"].Selected);
         Assert.False(categories["incomplete_downloads"].Selected);
         Assert.False(categories["memory_dumps"].Selected);
+        Assert.False(categories["app_caches"].Selected);
+        Assert.False(categories["developer_caches"].Selected);
+    }
+
+    [Fact]
+    public void TestNewCacheCategoriesHaveTranslationsInEveryLanguage()
+    {
+        foreach (string language in I18n.Languages)
+        {
+            I18n.SetLanguage(language);
+
+            Assert.NotEqual("cat_app_caches_name", I18n.Tr("cat_app_caches_name"));
+            Assert.NotEqual("cat_app_caches_desc", I18n.Tr("cat_app_caches_desc"));
+            Assert.NotEqual("cat_developer_caches_name", I18n.Tr("cat_developer_caches_name"));
+            Assert.NotEqual("cat_developer_caches_desc", I18n.Tr("cat_developer_caches_desc"));
+        }
+    }
+
+    [Fact]
+    public void MaintenanceToolsHaveTranslationsInEveryLanguage()
+    {
+        foreach (string language in I18n.Languages)
+        {
+            I18n.SetLanguage(language);
+
+            Assert.NotEqual("maintenance_title", I18n.Tr("maintenance_title"));
+            Assert.NotEqual("maintenance_duplicates", I18n.Tr("maintenance_duplicates"));
+            Assert.NotEqual("maintenance_empty_folders", I18n.Tr("maintenance_empty_folders"));
+        }
     }
 
     [Fact]
@@ -67,4 +96,3 @@ public class I18nTests
         Assert.Equal("Знайти сміття", I18n.Tr("scan_button"));
     }
 }
-

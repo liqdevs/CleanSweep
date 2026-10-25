@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using CleanSweep.Core.Cleaning;
+using CleanSweep.Core.Models;
 using Xunit;
 
 namespace CleanSweep.Tests;
@@ -43,6 +44,60 @@ public class CleanupSafetyTests
         finally
         {
             Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FilesWithFutureTimestampsAreNotProtectedAsRecentlyModified()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "CleanSweepTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string target = Path.Combine(tempDir, "future.tmp");
+            File.WriteAllText(target, "future");
+            File.SetLastWriteTimeUtc(target, DateTime.UtcNow.AddMinutes(5));
+
+            Assert.False(CategoryCleaner.ShouldSkipForCleanup(target, recentSeconds: 60));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CategoryCleanupContinuesPastLockedFilesAndCountsRemovedFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "CleanSweepCategoryCleanup_" + Guid.NewGuid().ToString("N"));
+        string nested = Path.Combine(root, "Cache");
+        Directory.CreateDirectory(nested);
+        try
+        {
+            string lockedPath = Path.Combine(nested, "locked.tmp");
+            string removablePath = Path.Combine(nested, "removable.tmp");
+            File.WriteAllText(lockedPath, "locked");
+            File.WriteAllText(removablePath, "remove");
+            File.SetLastWriteTimeUtc(lockedPath, DateTime.UtcNow.AddHours(-1));
+            File.SetLastWriteTimeUtc(removablePath, DateTime.UtcNow.AddHours(-1));
+
+            CleanResult result;
+            using (new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                result = CategoryCleaner.CleanCategory(new Category(
+                    "app_caches",
+                    new[] { new ScanTarget(root, TargetKind.DirContents) }));
+            }
+
+            Assert.Equal(1, result.RemovedItems);
+            Assert.Equal(6, result.FreedBytes);
+            Assert.NotEmpty(result.Errors);
+            Assert.True(File.Exists(lockedPath));
+            Assert.False(File.Exists(removablePath));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
         }
     }
 

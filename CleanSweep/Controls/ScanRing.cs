@@ -8,6 +8,20 @@ namespace CleanSweep.Controls;
 public class ScanRing : FrameworkElement
 {
     private const double RingWidth = 14.0;
+    private static readonly SolidColorBrush TrackBrush = CreateFrozenBrush("#232833");
+    private static readonly SolidColorBrush TitleBrush = CreateFrozenBrush("#F2F4F8");
+    private static readonly SolidColorBrush SubBrush = CreateFrozenBrush("#5C6376");
+    private static readonly Typeface TitleTypeface = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+    private static readonly Typeface SubTypeface = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+    private static readonly Pen TrackPen = CreatePen(TrackBrush);
+
+    private Pen _progressPen = CreatePen(CreateFrozenBrush("#43C6AC"));
+    private string? _cachedTitleText;
+    private string? _cachedSubText;
+    private double _cachedTextWidth = double.NaN;
+    private double _cachedPixelsPerDip = double.NaN;
+    private FormattedText? _cachedTitle;
+    private FormattedText? _cachedSub;
 
     public static readonly DependencyProperty ProgressProperty =
         DependencyProperty.Register(
@@ -35,7 +49,7 @@ public class ScanRing : FrameworkElement
             nameof(RingBrush),
             typeof(Brush),
             typeof(ScanRing),
-            new FrameworkPropertyMetadata(new SolidColorBrush((Color)ColorConverter.ConvertFromString("#43C6AC")), FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(CreateFrozenBrush("#43C6AC"), FrameworkPropertyMetadataOptions.AffectsRender, OnRingBrushChanged));
 
     public double Progress
     {
@@ -67,6 +81,11 @@ public class ScanRing : FrameworkElement
         Height = 190;
     }
 
+    private static void OnRingBrushChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
+    {
+        ((ScanRing)sender)._progressPen = CreatePen((Brush)e.NewValue);
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
@@ -81,28 +100,15 @@ public class ScanRing : FrameworkElement
         if (radius <= 0) return;
 
         // 1. Background track ring
-        var trackPen = new Pen(new SolidColorBrush((Color)ColorConverter.ConvertFromString("#232833")), RingWidth)
-        {
-            StartLineCap = PenLineCap.Round,
-            EndLineCap = PenLineCap.Round
-        };
-        trackPen.Freeze();
-        dc.DrawEllipse(null, trackPen, new Point(cx, cy), radius, radius);
+        dc.DrawEllipse(null, TrackPen, new Point(cx, cy), radius, radius);
 
         // 2. Active progress arc
         double progress = Progress;
         if (progress > 0.001)
         {
-            var ringPen = new Pen(RingBrush, RingWidth)
-            {
-                StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
-            };
-            ringPen.Freeze();
-
             if (progress >= 0.999)
             {
-                dc.DrawEllipse(null, ringPen, new Point(cx, cy), radius, radius);
+                dc.DrawEllipse(null, _progressPen, new Point(cx, cy), radius, radius);
             }
             else
             {
@@ -129,64 +135,105 @@ public class ScanRing : FrameworkElement
                 pathGeometry.Figures.Add(pathFigure);
                 pathGeometry.Freeze();
 
-                dc.DrawGeometry(null, ringPen, pathGeometry);
+                dc.DrawGeometry(null, _progressPen, pathGeometry);
             }
         }
 
         // 3. Center and Sub texts
-        var typefaceTitle = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
-        var typefaceSub = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-        var textBrushTitle = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F2F4F8"));
-        var textBrushSub = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#5C6376"));
-        textBrushTitle.Freeze();
-        textBrushSub.Freeze();
-
         double maxTextWidth = side * 0.72;
+        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        EnsureTextCache(maxTextWidth, pixelsPerDip);
 
-        if (!string.IsNullOrEmpty(CenterText))
+        if (_cachedTitle is not null)
         {
-            double fontSize = 18.0;
-            FormattedText ftTitle;
-            do
-            {
-                ftTitle = new FormattedText(
-                    CenterText,
-                    CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    typefaceTitle,
-                    fontSize,
-                    textBrushTitle,
-                    VisualTreeHelper.GetDpi(this).PixelsPerDip);
-
-                if (ftTitle.Width <= maxTextWidth || fontSize <= 11) break;
-                fontSize -= 1.0;
-            } while (fontSize > 10);
-
-            double titleY = string.IsNullOrEmpty(SubText) ? cy - ftTitle.Height / 2 : cy - ftTitle.Height + 2;
-            dc.DrawText(ftTitle, new Point(cx - ftTitle.Width / 2, titleY));
+            double titleY = string.IsNullOrEmpty(SubText) ? cy - _cachedTitle.Height / 2 : cy - _cachedTitle.Height + 2;
+            dc.DrawText(_cachedTitle, new Point(cx - _cachedTitle.Width / 2, titleY));
         }
 
-        if (!string.IsNullOrEmpty(SubText))
+        if (_cachedSub is not null)
         {
-            double fontSize = 11.0;
-            FormattedText ftSub;
-            do
-            {
-                ftSub = new FormattedText(
-                    SubText,
-                    CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    typefaceSub,
-                    fontSize,
-                    textBrushSub,
-                    VisualTreeHelper.GetDpi(this).PixelsPerDip);
-
-                if (ftSub.Width <= maxTextWidth || fontSize <= 8) break;
-                fontSize -= 0.5;
-            } while (fontSize > 8);
-
-            dc.DrawText(ftSub, new Point(cx - ftSub.Width / 2, cy + 8));
+            dc.DrawText(_cachedSub, new Point(cx - _cachedSub.Width / 2, cy + 8));
         }
     }
-}
 
+    private void EnsureTextCache(double maxTextWidth, double pixelsPerDip)
+    {
+        if (_cachedTitleText == CenterText &&
+            _cachedSubText == SubText &&
+            _cachedTextWidth.Equals(maxTextWidth) &&
+            _cachedPixelsPerDip.Equals(pixelsPerDip))
+        {
+            return;
+        }
+
+        _cachedTitleText = CenterText;
+        _cachedSubText = SubText;
+        _cachedTextWidth = maxTextWidth;
+        _cachedPixelsPerDip = pixelsPerDip;
+        _cachedTitle = CreateFittedText(CenterText, TitleTypeface, TitleBrush, 18.0, 11.0, 1.0, maxTextWidth, pixelsPerDip);
+        _cachedSub = CreateFittedText(SubText, SubTypeface, SubBrush, 11.0, 8.0, 0.5, maxTextWidth, pixelsPerDip);
+    }
+
+    private static FormattedText? CreateFittedText(
+        string text,
+        Typeface typeface,
+        Brush brush,
+        double fontSize,
+        double minimumFontSize,
+        double step,
+        double maxTextWidth,
+        double pixelsPerDip)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        FormattedText formattedText;
+        do
+        {
+            formattedText = new FormattedText(
+                text,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                fontSize,
+                brush,
+                pixelsPerDip);
+            if (formattedText.Width <= maxTextWidth || fontSize <= minimumFontSize)
+            {
+                return formattedText;
+            }
+            fontSize -= step;
+        } while (fontSize >= minimumFontSize);
+
+        return formattedText;
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(string color) =>
+        CreateFrozenBrush((Color)ColorConverter.ConvertFromString(color));
+
+    private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Pen CreatePen(Brush brush)
+    {
+        Brush frozenBrush = brush.IsFrozen ? brush : brush.CloneCurrentValue();
+        if (frozenBrush.CanFreeze)
+        {
+            frozenBrush.Freeze();
+        }
+
+        var pen = new Pen(frozenBrush, RingWidth)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round
+        };
+        pen.Freeze();
+        return pen;
+    }
+}

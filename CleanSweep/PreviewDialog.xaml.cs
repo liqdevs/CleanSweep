@@ -16,14 +16,20 @@ public partial class PreviewDialog : Window
     private readonly List<PreviewItem> _previewItems;
     private readonly long _totalSize;
     private readonly int _totalItemCount;
+    private readonly string? _additionalWarning;
 
-    public PreviewDialog(List<PreviewItem> previewItems, long totalSize, int? totalItemCount = null)
+    public PreviewDialog(
+        List<PreviewItem> previewItems,
+        long totalSize,
+        int? totalItemCount = null,
+        string? additionalWarning = null)
     {
         InitializeComponent();
         WindowChromeTheme.Apply(this);
         _previewItems = previewItems.Take(MaximumVisibleItems).ToList();
         _totalSize = totalSize;
         _totalItemCount = Math.Max(_previewItems.Count, totalItemCount ?? previewItems.Count);
+        _additionalWarning = additionalWarning;
 
         PopulateItems();
         Retranslate();
@@ -144,6 +150,7 @@ public partial class PreviewDialog : Window
             : "preview_summary";
         SummaryText.Text = I18n.Tr(summaryKey, summaryArgs)
             + "\n"
+            + (_additionalWarning is null ? string.Empty : _additionalWarning + "\n")
             + I18n.Tr("preview_importance_note");
 
         LegendGreenText.Text = I18n.Tr("preview_risk_green");

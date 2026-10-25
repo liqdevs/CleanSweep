@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using CleanSweep.Core.Models;
 using CleanSweep.Core.Utils;
@@ -14,7 +15,9 @@ public static class CategoryScanner
         "memory_dumps",
         "recent_items",
         "incomplete_downloads",
-        "recycle_bin"
+        "recycle_bin",
+        "app_caches",
+        "developer_caches"
     };
 
     public static List<Category> BuildCategories(string? drive = null)
@@ -53,31 +56,18 @@ public static class CategoryScanner
             }, SelectedFor("temp")));
 
             // 2. Browser cache
-            var browserTargets = new List<ScanTarget>
-            {
-                new(Path.Combine(localAppData, "Google", "Chrome", "User Data", "Default", "Cache"), TargetKind.DirContents),
-                new(Path.Combine(localAppData, "Microsoft", "Edge", "User Data", "Default", "Cache"), TargetKind.DirContents)
-            };
+            var browserTargets = new List<ScanTarget>();
+            AddChromiumBrowserCaches(browserTargets, Path.Combine(localAppData, "Google", "Chrome", "User Data"));
+            AddChromiumBrowserCaches(browserTargets, Path.Combine(localAppData, "Microsoft", "Edge", "User Data"));
+            AddChromiumBrowserCaches(browserTargets, Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data"));
+            AddChromiumBrowserCaches(browserTargets, Path.Combine(localAppData, "Vivaldi", "User Data"));
+            AddChromiumBrowserCaches(browserTargets, Path.Combine(localAppData, "Yandex", "YandexBrowser", "User Data"));
+            AddProfileCacheDirectories(browserTargets, Path.Combine(appData, "Opera Software", "Opera Stable"), "Cache", "Code Cache", "GPUCache");
+            AddProfileCacheDirectories(browserTargets, Path.Combine(appData, "Opera Software", "Opera GX Stable"), "Cache", "Code Cache", "GPUCache");
 
+            AddProfileCaches(browserTargets, Path.Combine(appData, "Mozilla", "Firefox", "Profiles"), "cache2");
             string firefoxProfiles = Path.Combine(localAppData, "Mozilla", "Firefox", "Profiles");
-            if (Directory.Exists(firefoxProfiles))
-            {
-                try
-                {
-                    foreach (var profile in Directory.EnumerateDirectories(firefoxProfiles))
-                    {
-                        string cacheDir = Path.Combine(profile, "cache2");
-                        if (Directory.Exists(cacheDir))
-                        {
-                            browserTargets.Add(new ScanTarget(cacheDir, TargetKind.DirContents));
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore profile read errors
-                }
-            }
+            AddProfileCaches(browserTargets, firefoxProfiles, "cache2");
             categories.Add(new Category("browser_cache", browserTargets, SelectedFor("browser_cache")));
 
             // 3. Thumbnails
@@ -128,6 +118,41 @@ public static class CategoryScanner
             {
                 new ScanTarget(drive, TargetKind.RecycleBin)
             }, SelectedFor("recycle_bin")));
+
+            // 10. Messenger and desktop app caches. Keep account data and offline media untouched.
+            var appCacheTargets = new List<ScanTarget>();
+            foreach (string discordInstall in new[] { "discord", "discordptb", "discordcanary" })
+            {
+                string discordPath = Path.Combine(appData, discordInstall);
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(discordPath, "Cache"));
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(discordPath, "Code Cache"));
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(discordPath, "GPUCache"));
+            }
+            AddExistingDirectoryTarget(appCacheTargets, Path.Combine(appData, "Telegram Desktop", "tdata", "temp"));
+            AddExistingDirectoryTarget(appCacheTargets, Path.Combine(appData, "Telegram Desktop", "tdata", "user_data", "cache"));
+            AddExistingDirectoryTarget(appCacheTargets, Path.Combine(localAppData, "Spotify", "Browser", "Cache"));
+            AddExistingDirectoryTarget(appCacheTargets, Path.Combine(localAppData, "Spotify", "Browser", "Code Cache"));
+
+            string steamInstall = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            if (!string.IsNullOrWhiteSpace(steamInstall))
+            {
+                string steamRoot = Path.Combine(steamInstall, "Steam");
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(steamRoot, "steamapps", "shadercache"));
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(steamRoot, "appcache", "httpcache"));
+                AddExistingDirectoryTarget(appCacheTargets, Path.Combine(steamRoot, "config", "htmlcache"));
+            }
+
+            AddExistingDirectoryTarget(appCacheTargets, Path.Combine(localAppData, "Steam", "htmlcache"));
+            categories.Add(new Category("app_caches", appCacheTargets, SelectedFor("app_caches")));
+
+            // 11. Development tool caches. NuGet packages are included only as an optional,
+            // unchecked category because removing them can require large downloads later.
+            var developerCacheTargets = new List<ScanTarget>();
+            AddExistingDirectoryTarget(developerCacheTargets, Path.Combine(userProfile, ".nuget", "packages"));
+            AddExistingDirectoryTarget(developerCacheTargets, Path.Combine(userProfile, ".npm", "_cacache"));
+            AddExistingDirectoryTarget(developerCacheTargets, Path.Combine(userProfile, ".gradle", "caches"));
+            AddExistingDirectoryTarget(developerCacheTargets, Path.Combine(localAppData, "pip", "Cache"));
+            categories.Add(new Category("developer_caches", developerCacheTargets, SelectedFor("developer_caches")));
         }
         else
         {
@@ -145,6 +170,54 @@ public static class CategoryScanner
         }
 
         return categories;
+    }
+
+    private static void AddChromiumBrowserCaches(List<ScanTarget> targets, string userDataPath)
+    {
+        AddProfileCaches(targets, userDataPath, "Cache", "Code Cache", "GPUCache");
+    }
+
+    private static void AddProfileCaches(List<ScanTarget> targets, string profilesPath, params string[] cacheDirectories)
+    {
+        if (!Directory.Exists(profilesPath))
+        {
+            return;
+        }
+
+        IEnumerable<string> profiles;
+        try
+        {
+            profiles = Directory.EnumerateDirectories(profilesPath).ToArray();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        foreach (string profile in profiles)
+        {
+            AddProfileCacheDirectories(targets, profile, cacheDirectories);
+        }
+    }
+
+    private static void AddProfileCacheDirectories(List<ScanTarget> targets, string profilePath, params string[] cacheDirectories)
+    {
+        foreach (string cacheDirectory in cacheDirectories)
+        {
+            AddExistingDirectoryTarget(targets, Path.Combine(profilePath, cacheDirectory));
+        }
+    }
+
+    private static void AddExistingDirectoryTarget(List<ScanTarget> targets, string path)
+    {
+        if (Directory.Exists(path))
+        {
+            targets.Add(new ScanTarget(path, TargetKind.DirContents));
+        }
     }
 
     public static void ScanCategory(Category category)
@@ -228,4 +301,3 @@ public static class CategoryScanner
         category.Exists = foundAnything;
     }
 }
-

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using CleanSweep.Core.Models;
 using Microsoft.Win32;
 
@@ -31,9 +32,9 @@ public static class StartupManager
         return Path.Combine(programData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
     }
 
-    public static Dictionary<string, string> ReadRunKey(RegistryKey hive, string path)
+    public static Dictionary<string, (string command, RegistryValueKind kind)> ReadRunKey(RegistryKey hive, string path)
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, (string command, RegistryValueKind kind)>(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var key = hive.OpenSubKey(path, false);
@@ -41,10 +42,10 @@ public static class StartupManager
             {
                 foreach (var valueName in key.GetValueNames())
                 {
-                    var val = key.GetValue(valueName)?.ToString();
+                    var val = key.GetValue(valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString();
                     if (!string.IsNullOrWhiteSpace(val))
                     {
-                        result[valueName] = val;
+                        result[valueName] = (val, key.GetValueKind(valueName));
                     }
                 }
             }
@@ -54,6 +55,12 @@ public static class StartupManager
             // Ignore access or non-existent keys
         }
         return result;
+    }
+
+    private static bool IsAdministrator()
+    {
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     public static List<StartupItem> ListStartupFolder(string folderPath, string source, bool needsAdmin)
@@ -129,58 +136,83 @@ public static class StartupManager
         }
 
         var items = new List<StartupItem>();
+        bool isAdministrator = IsAdministrator();
 
         // HKCU Run
         var enabledHkcu = ReadRunKey(Registry.CurrentUser, RunKeyPath);
         var disabledHkcu = ReadRunKey(Registry.CurrentUser, $@"{BackupKeyPath}\HKCU_Run");
 
-        foreach (var (name, command) in enabledHkcu)
+        foreach (var (name, value) in enabledHkcu)
         {
             items.Add(new StartupItem
             {
                 Id = $"hkcu_run:{name}",
                 Name = name,
-                Command = command,
+                Command = value.command,
                 Source = "hkcu_run",
                 Enabled = true,
-                NeedsAdmin = false
+                NeedsAdmin = false,
+                RegistryPath = RunKeyPath
             });
         }
 
-        foreach (var (name, command) in disabledHkcu)
+        foreach (var (name, value) in disabledHkcu)
         {
             items.Add(new StartupItem
             {
                 Id = $"hkcu_run:{name}",
                 Name = name,
-                Command = command,
+                Command = value.command,
                 Source = "hkcu_run",
                 Enabled = false,
-                NeedsAdmin = false
+                NeedsAdmin = false,
+                RegistryPath = RunKeyPath
             });
         }
 
-        // HKLM Run (64-bit and 32-bit Wow64)
-        foreach (var path in new[] { RunKeyPath, Wow6432RunKeyPath })
+        // Read each machine registry view explicitly to avoid WOW64 path redirection.
+        IEnumerable<RegistryView> machineViews = Environment.Is64BitOperatingSystem
+            ? new[] { RegistryView.Registry64, RegistryView.Registry32 }
+            : new[] { RegistryView.Registry32 };
+        foreach (var view in machineViews)
         {
-            var hklm = ReadRunKey(Registry.LocalMachine, path);
-            foreach (var (name, command) in hklm)
+            using var machineHive = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            var hklm = ReadRunKey(machineHive, RunKeyPath);
+            foreach (var (name, value) in hklm)
             {
                 items.Add(new StartupItem
                 {
-                    Id = $"hklm_run:{path}:{name}",
+                    Id = $"hklm_run:{view}:{name}",
                     Name = name,
-                    Command = command,
+                    Command = value.command,
                     Source = "hklm_run",
                     Enabled = true,
-                    NeedsAdmin = true
+                    NeedsAdmin = !isAdministrator,
+                    RegistryPath = RunKeyPath,
+                    RegistryView = view
+                });
+            }
+
+            var disabledHklm = ReadRunKey(machineHive, $@"{BackupKeyPath}\HKLM_Run\{view}");
+            foreach (var (name, value) in disabledHklm)
+            {
+                items.Add(new StartupItem
+                {
+                    Id = $"hklm_run:{view}:{name}",
+                    Name = name,
+                    Command = value.command,
+                    Source = "hklm_run",
+                    Enabled = false,
+                    NeedsAdmin = !isAdministrator,
+                    RegistryPath = RunKeyPath,
+                    RegistryView = view
                 });
             }
         }
 
         // Startup Folders
         items.AddRange(ListStartupFolder(UserStartupDir(), "user_startup", needsAdmin: false));
-        items.AddRange(ListStartupFolder(CommonStartupDir(), "common_startup", needsAdmin: true));
+        items.AddRange(ListStartupFolder(CommonStartupDir(), "common_startup", needsAdmin: !isAdministrator));
 
         items.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return items;
@@ -194,31 +226,92 @@ public static class StartupManager
             if (enabled)
             {
                 using var backupKey = Registry.CurrentUser.OpenSubKey(backupSubkey, true);
-                var command = backupKey?.GetValue(name)?.ToString();
-                if (string.IsNullOrEmpty(command))
+                if (backupKey is null)
                 {
                     return false;
                 }
 
+                var command = backupKey.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString();
+                if (string.IsNullOrEmpty(command)) return false;
+
                 using var runKey = Registry.CurrentUser.CreateSubKey(RunKeyPath, true);
                 if (runKey == null) return false;
-                runKey.SetValue(name, command, RegistryValueKind.String);
+                RegistryValueKind storedKind = backupKey.GetValueKind(name);
+                runKey.SetValue(name, command, storedKind);
                 backupKey?.DeleteValue(name, false);
             }
             else
             {
                 using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
-                var command = runKey?.GetValue(name)?.ToString();
-                if (string.IsNullOrEmpty(command))
+                if (runKey is null)
                 {
                     return false;
                 }
 
+                var command = runKey.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString();
+                if (string.IsNullOrEmpty(command)) return false;
+
                 using var backupKey = Registry.CurrentUser.CreateSubKey(backupSubkey, true);
                 if (backupKey == null) return false;
-                backupKey.SetValue(name, command, RegistryValueKind.String);
-                runKey?.DeleteValue(name, false);
+                backupKey.SetValue(name, command, runKey.GetValueKind(name));
+                runKey.DeleteValue(name, false);
             }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ToggleMachineRegistryEntry(StartupItem item, bool enabled)
+    {
+        if (!IsAdministrator())
+        {
+            return false;
+        }
+
+        try
+        {
+            string backupPath = $@"{BackupKeyPath}\HKLM_Run\{item.RegistryView}";
+            using var machineHive = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, item.RegistryView);
+            if (enabled)
+            {
+                using var backupKey = machineHive.OpenSubKey(backupPath, true);
+                object? command = backupKey?.GetValue(item.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if (command is not string commandText || backupKey is null)
+                {
+                    return false;
+                }
+
+                using var runKey = machineHive.CreateSubKey(item.RegistryPath, true);
+                if (runKey is null)
+                {
+                    return false;
+                }
+
+                runKey.SetValue(item.Name, commandText, backupKey.GetValueKind(item.Name));
+                backupKey.DeleteValue(item.Name, false);
+            }
+            else
+            {
+                using var runKey = machineHive.OpenSubKey(item.RegistryPath, true);
+                object? command = runKey?.GetValue(item.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if (command is not string commandText || runKey is null)
+                {
+                    return false;
+                }
+
+                using var backupKey = machineHive.CreateSubKey(backupPath, true);
+                if (backupKey is null)
+                {
+                    return false;
+                }
+
+                backupKey.SetValue(item.Name, commandText, runKey.GetValueKind(item.Name));
+                runKey.DeleteValue(item.Name, false);
+            }
+
             return true;
         }
         catch
@@ -278,7 +371,7 @@ public static class StartupManager
 
     public static bool SetStartupEnabled(StartupItem item, bool enabled)
     {
-        if (item.NeedsAdmin || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || (item.NeedsAdmin && !IsAdministrator()))
         {
             return false;
         }
@@ -288,9 +381,19 @@ public static class StartupManager
             return ToggleRegistryEntry(item.Name, enabled);
         }
 
+        if (item.Source == "hklm_run")
+        {
+            return ToggleMachineRegistryEntry(item, enabled);
+        }
+
         if (item.Source == "user_startup")
         {
             return ToggleStartupFile(UserStartupDir(), item.Name, enabled);
+        }
+
+        if (item.Source == "common_startup")
+        {
+            return ToggleStartupFile(CommonStartupDir(), item.Name, enabled);
         }
 
         return false;

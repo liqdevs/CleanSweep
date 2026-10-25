@@ -9,6 +9,7 @@ using CleanSweep.Core.Cleaning;
 using CleanSweep.Core.Localization;
 using CleanSweep.Core.Models;
 using CleanSweep.Core.Scanning;
+using CleanSweep.Core.Settings;
 using CleanSweep.Core.Utils;
 
 namespace CleanSweep;
@@ -26,6 +27,8 @@ public partial class MainWindow : Window
 
     private string _drive;
     private AppState _state = AppState.Idle;
+    private DiskStatisticsDialog? _diskStatisticsDialog;
+    private MaintenanceToolsDialog? _maintenanceToolsDialog;
     private List<Category> _categories = new();
     private readonly Dictionary<string, CategoryRowControl> _rows = new(StringComparer.OrdinalIgnoreCase);
 
@@ -39,7 +42,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         WindowChromeTheme.Apply(this);
 
-        _drive = I18n.LoadSavedDrive();
+        I18n.SetLanguage(AppSettings.LoadSavedLanguage());
+        _drive = AppSettings.LoadSavedDrive();
         RetranslateUi();
     }
 
@@ -149,6 +153,7 @@ public partial class MainWindow : Window
         CleanBtn.Content = I18n.Tr("clean_button");
         StartupBtn.ToolTip = I18n.Tr("startup_button_tooltip");
         DiskStatsBtn.Content = I18n.Tr("disk_stats_title");
+        MaintenanceToolsBtn.Content = I18n.Tr("maintenance_tools");
         SettingsBtn.ToolTip = I18n.Tr("settings_title");
 
         foreach (var row in _rows.Values)
@@ -212,11 +217,36 @@ public partial class MainWindow : Window
 
     private void OnDiskStatsClicked(object sender, RoutedEventArgs e)
     {
+        if (_diskStatisticsDialog is { IsVisible: true } openDialog)
+        {
+            openDialog.Activate();
+            return;
+        }
+
         var dialog = new DiskStatisticsDialog(_drive)
         {
             Owner = this
         };
-        dialog.ShowDialog();
+        _diskStatisticsDialog = dialog;
+        dialog.Closed += (_, _) => _diskStatisticsDialog = null;
+        dialog.Show();
+    }
+
+    private void OnMaintenanceToolsClicked(object sender, RoutedEventArgs e)
+    {
+        if (_maintenanceToolsDialog is { IsVisible: true } openDialog)
+        {
+            openDialog.Activate();
+            return;
+        }
+
+        var dialog = new MaintenanceToolsDialog
+        {
+            Owner = this
+        };
+        _maintenanceToolsDialog = dialog;
+        dialog.Closed += (_, _) => _maintenanceToolsDialog = null;
+        dialog.Show();
     }
 
     // ------------------------------------------------------------------ Scanning
@@ -438,11 +468,14 @@ public partial class MainWindow : Window
             }
         }
 
-        MessageBox.Show(
-            this,
-            message,
+        new AppMessageDialog(
             I18n.Tr("done_title"),
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+            message,
+            _cleanErrors.Count > 0 || _cleanErrorsOmitted > 0
+                ? AppMessageKind.Warning
+                : AppMessageKind.Success)
+        {
+            Owner = this
+        }.ShowDialog();
     }
 }
